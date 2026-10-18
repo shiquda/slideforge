@@ -1452,9 +1452,9 @@ fn emit_run_styled(
         .and_then(|r| r.family.as_deref())
         .map(|f| FontFamily::Single(f.to_owned()))
         .or_else(|| style.font_family.clone())
-        .unwrap_or_else(|| FontFamily::Bilingual {
-            latin: "Arial".to_owned(),
-            ea: "Microsoft YaHei".to_owned(),
+        .unwrap_or_else(|| {
+            let (latin, ea) = super::theme::default_fonts(theme);
+            FontFamily::Bilingual { latin, ea }
         });
     let color = run
         .and_then(|r| r.color.as_deref())
