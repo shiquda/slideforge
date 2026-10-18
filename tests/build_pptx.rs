@@ -424,86 +424,107 @@ elements:
 }
 
 #[test]
-fn math_formula_variable_italics_and_subscripts() {
-    let deck = r#"
-version: v2
-title: Math Test
-size: [960, 540]
-pages: [pages/p.page]
-"#;
+fn mathematical_alphabets_survive_build_and_override_outer_emphasis() {
+    let deck = "version: v2\ntitle: Math Semantics\nsize: [960, 540]\npages: [pages/p.page]\n";
     let page = r#"
 elements:
-  - elementId: m1
+  - elementId: mathematics
     elementType: text
-    bounds: [50, 50, 400, 100]
+    bounds: [50, 50, 860, 300]
     content:
+      fontFamily: Arial
+      bold: true
+      italic: true
       text: |
-        <p>公式 \(h(s_t) \ge 0\)</p>
+        <p>\(\mathbf{A}_t \sim \pi_\theta(\mathbf{o}_{\le t}, \ell, \mathbf{q}_t)\)</p>
+        <p>\(xy + \sin z + \mathrm{i} + \mathit{j} + \boldsymbol{\alpha} + \operatorname{rank}(B) + 0\)</p>
 "#;
-    let dir = std::env::temp_dir().join(format!("slideforge-math-test-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
+    let dir =
+        std::env::temp_dir().join(format!("slideforge-math-semantics-{}", std::process::id()));
     fs::create_dir_all(dir.join("pages")).unwrap();
     fs::write(dir.join("deck.pptd"), deck).unwrap();
     fs::write(dir.join("pages/p.page"), page).unwrap();
-
     let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
-    let path = out_path("math_test");
-    let _ = fs::remove_file(&path);
-
-    PptxWriter::new(&project)
-        .build(&path)
-        .expect("math deck must build");
-
-    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
-    assert!(slide.contains("baseline=\"-25000\""), "subscript baseline shift missing");
-    assert!(slide.contains("i=\"1\""), "math variable italic missing");
-    assert!(slide.contains("≥"), "ge symbol missing");
-    assert!(slide.contains("typeface=\"Times New Roman\""), "Times New Roman font missing for math formula");
-    assert!(slide.contains("<a:cs typeface=\"Times New Roman\"/>"), "Complex script math font missing");
-    let _ = fs::remove_file(&path);
+    let path = out_path("math-semantics");
+    PptxWriter::new(&project).build(&path).unwrap();
+    let xml = read_zip_part(&path, "ppt/slides/slide1.xml");
+    let root = xmltree::Element::parse(xml.as_bytes()).unwrap();
+    fn collect<'a>(element: &'a xmltree::Element, runs: &mut Vec<&'a xmltree::Element>) {
+        if element.name == "r" {
+            runs.push(element);
+        }
+        for child in &element.children {
+            if let xmltree::XMLNode::Element(child) = child {
+                collect(child, runs);
+            }
+        }
+    }
+    let mut runs = Vec::new();
+    collect(&root, &mut runs);
+    let mut characters = Vec::new();
+    for run in runs {
+        let props = run.get_child("rPr").unwrap();
+        let text = run.get_child("t").unwrap().get_text().unwrap_or_default();
+        let bold = props.attributes.get("b").map(String::as_str);
+        let italic = props.attributes.get("i").map(String::as_str);
+        let baseline = props.attributes.get("baseline").map(String::as_str);
+        characters.extend(text.chars().map(|ch| (ch, bold, italic, baseline)));
+    }
+    for (symbol, bold, italic) in [
+        ('A', "1", "0"),
+        ('o', "1", "0"),
+        ('q', "1", "0"),
+        ('t', "0", "1"),
+        ('π', "0", "1"),
+        ('θ', "0", "1"),
+        ('x', "0", "1"),
+        ('y', "0", "1"),
+        ('z', "0", "1"),
+        ('i', "0", "0"),
+        ('j', "0", "1"),
+        ('α', "1", "1"),
+        ('0', "0", "0"),
+        ('∼', "0", "0"),
+        ('≤', "0", "0"),
+    ] {
+        let matches: Vec<_> = characters.iter().filter(|c| c.0 == symbol).collect();
+        assert!(!matches.is_empty(), "missing symbol {symbol}");
+        for character in matches {
+            assert_eq!(
+                (character.1, character.2),
+                (Some(bold), Some(italic)),
+                "{symbol}"
+            );
+        }
+    }
+    assert!(
+        characters
+            .iter()
+            .any(|c| c.0 == 't' && c.3 == Some("-25000"))
+    );
+    for operator in ["sin", "rank"] {
+        let run = root_runs_with_text(&root, operator).expect("operator text must survive");
+        let props = run.get_child("rPr").unwrap();
+        assert_eq!(props.attributes.get("i").map(String::as_str), Some("0"));
+        assert_eq!(props.attributes.get("b").map(String::as_str), Some("0"));
+    }
+    fs::remove_file(path).unwrap();
+    fs::remove_dir_all(dir).unwrap();
 }
 
-#[test]
-fn math_formula_operator_upright_and_variable_italic() {
-    let deck = r#"
-version: v2
-title: Math Operator Test
-size: [960, 540]
-pages: [pages/p.page]
-"#;
-    let page = r#"
-elements:
-  - elementId: m2
-    elementType: text
-    bounds: [50, 50, 400, 100]
-    content:
-      text: |
-        <p>公式 \(\sin(x) + \max(y, z)\)</p>
-"#;
-    let dir = std::env::temp_dir().join(format!("slideforge-math-op-test-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(dir.join("pages")).unwrap();
-    fs::write(dir.join("deck.pptd"), deck).unwrap();
-    fs::write(dir.join("pages/p.page"), page).unwrap();
-
-    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
-    let path = out_path("math_op_test");
-    let _ = fs::remove_file(&path);
-
-    PptxWriter::new(&project)
-        .build(&path)
-        .expect("math operator deck must build");
-
-    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
-    // Variables x, y, z must have italic i="1"
-    assert!(slide.contains("<a:t>x</a:t>"), "variable x missing");
-    assert!(slide.contains("<a:t>sin</a:t>"), "operator sin missing");
-    // Ensure sin run does not have i="1"
-    let sin_idx = slide.find("<a:t>sin</a:t>").unwrap();
-    let sin_r_start = slide[..sin_idx].rfind("<a:r>").unwrap();
-    let sin_run = &slide[sin_r_start..sin_idx];
-    assert!(!sin_run.contains("i=\"1\""), "operator sin must be upright (no i=\"1\")");
-    let _ = fs::remove_file(&path);
+fn root_runs_with_text<'a>(root: &'a xmltree::Element, text: &str) -> Option<&'a xmltree::Element> {
+    if root.name == "r"
+        && root
+            .get_child("t")
+            .and_then(|t| t.get_text())
+            .is_some_and(|t| t.contains(text))
+    {
+        return Some(root);
+    }
+    root.children.iter().find_map(|child| match child {
+        xmltree::XMLNode::Element(child) => root_runs_with_text(child, text),
+        _ => None,
+    })
 }
 
 #[test]

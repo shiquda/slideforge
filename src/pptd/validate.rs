@@ -880,7 +880,26 @@ fn strip_tags(html: &str) -> String {
             out.push(c);
         }
     }
-    out
+    if !out.contains("\\(") {
+        return out;
+    }
+    // Measure the displayed math, not command names such as \mathbf or \theta.
+    // Reuse the compiler's interpretation so styling cannot inflate estimates.
+    let mut visible = String::with_capacity(out.len());
+    let mut rest = out.as_str();
+    while let Some(start) = rest.find("\\(") {
+        let body = &rest[start + 2..];
+        let Some(end) = body.find("\\)") else {
+            break;
+        };
+        visible.push_str(&rest[..start]);
+        for segment in crate::pptx::math::latex_to_segments(&body[..end]) {
+            visible.push_str(&segment.text);
+        }
+        rest = &body[end + 2..];
+    }
+    visible.push_str(rest);
+    visible
 }
 
 fn check_text_overflow(

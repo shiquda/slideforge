@@ -334,3 +334,38 @@ elements:
         "expected text overflow warning, got {issues:?}"
     );
 }
+
+#[test]
+fn math_font_commands_do_not_inflate_overflow_estimates() {
+    let page = r#"
+elements:
+  - elementId: formula
+    elementType: text
+    bounds: [50, 50, 332, 40]
+    content:
+      fontSize: 17
+      text: '<p>\(\mathbf{A}_t \sim \pi_\theta(\mathbf{A}_t \mid \mathbf{o}_{\le t},\, \ell,\, \mathbf{q}_t)\)</p>'
+  - elementId: crowded
+    elementType: text
+    bounds: [50, 120, 40, 20]
+    content:
+      fontSize: 24
+      text: '<p>\(\mathbf{A}_t + \mathbf{B}_t + \mathbf{C}_t + \mathbf{D}_t\)</p>'
+"#;
+    let entry = tmp_deck("math-overflow", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        !issues
+            .iter()
+            .any(|d| d.message.contains("overflow in `formula`")),
+        "{issues:?}"
+    );
+    assert!(
+        issues
+            .iter()
+            .any(|d| d.message.contains("overflow in `crowded`")),
+        "{issues:?}"
+    );
+    fs::remove_dir_all(Path::new(&entry).parent().unwrap()).unwrap();
+}
