@@ -310,8 +310,39 @@ pub fn theme_xml(theme: Option<&Theme>) -> String {
     x.into_string()
 }
 
+/// Resolve an East Asian typeface name to a physically safe, universally installed
+/// font to prevent operating systems (like macOS CoreText) from falling back to
+/// cursive/handwriting fonts like `HanziPen SC` (翩翩体).
+pub fn safe_ea_typeface(name: &str) -> &str {
+    let trimmed = name.trim();
+    match trimmed {
+        // MiSans / Liter are Kimi WebFonts — not installed by default on macOS or Windows!
+        // Fallback to Microsoft YaHei (pre-installed on all Windows, and Mac Office/LibreOffice)
+        "MiSans" | "misans" | "Liter" | "liter" => "Microsoft YaHei",
+        "微软雅黑" | "Microsoft YaHei" | "MS YaHei" | "雅黑" => "Microsoft YaHei",
+        "苹方" | "苹方-简" | "PingFang SC" => "PingFang SC",
+        "思源黑体" | "Source Han Sans" | "Source Han Sans SC" | "Noto Sans SC" => "Microsoft YaHei",
+        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" => "Source Han Serif SC",
+        "宋体" | "SimSun" | "中易宋体" | "Songti SC" => "SimSun",
+        "" => "Microsoft YaHei",
+        other => other,
+    }
+}
+
+/// Resolve a Latin typeface name to a clean, universally available font.
+pub fn safe_latin_typeface(name: &str) -> &str {
+    let trimmed = name.trim();
+    match trimmed {
+        "MiSans" | "misans" | "Liter" | "liter" => "Arial",
+        "QuattrocentoSans" => "Arial",
+        "SortsMillGoudy" => "Georgia",
+        "" => "Arial",
+        other => other,
+    }
+}
+
 /// Default `(latin, ea)` font pair: the first font declared in the theme's
-/// text styles, or the spec default `MiSans`.
+/// text styles, or the spec default safe fonts.
 pub fn default_fonts(theme: Option<&Theme>) -> (String, String) {
     if let Some(font) = theme.and_then(|theme| {
         theme
@@ -320,18 +351,28 @@ pub fn default_fonts(theme: Option<&Theme>) -> (String, String) {
             .find_map(|style| style.font_family.clone())
     }) {
         return match font {
-            FontFamily::Single(name) => (name.clone(), name),
-            FontFamily::Bilingual { latin, ea } => (latin, ea),
+            FontFamily::Single(name) => (
+                safe_latin_typeface(&name).to_owned(),
+                safe_ea_typeface(&name).to_owned(),
+            ),
+            FontFamily::Bilingual { latin, ea } => (
+                safe_latin_typeface(&latin).to_owned(),
+                safe_ea_typeface(&ea).to_owned(),
+            ),
         };
     }
-    ("MiSans".to_owned(), "MiSans".to_owned())
+    ("Arial".to_owned(), "Microsoft YaHei".to_owned())
 }
 
 fn emit_font_scheme(x: &mut Xml, name: &str, latin: &str, ea: &str) {
+    let safe_latin = safe_latin_typeface(latin);
+    let safe_ea = safe_ea_typeface(ea);
     x.start(name, &[]);
-    x.leaf("a:latin", &[("typeface", latin)]);
-    x.leaf("a:ea", &[("typeface", ea)]);
-    x.leaf("a:cs", &[("typeface", latin)]);
+    x.leaf("a:latin", &[("typeface", safe_latin)]);
+    x.leaf("a:ea", &[("typeface", safe_ea)]);
+    x.leaf("a:cs", &[("typeface", safe_latin)]);
+    x.leaf("a:font", &[("script", "Hans"), ("typeface", safe_ea)]);
+    x.leaf("a:font", &[("script", "Hant"), ("typeface", "Microsoft JhengHei")]);
     x.end(name);
 }
 

@@ -7,7 +7,7 @@
 //! `<p:grpSp>` group reconstruction (SlideForge group extension) are
 //! supported.
 
-use crate::pptd::elements::{GroupDef, GroupXfrm};
+use crate::pptd::elements::{ArrowType, GroupDef, GroupXfrm};
 use crate::pptd::shared::{
     Alignment, Border, Bounds, Color, Fill, FontFamily, GradientType, HorizontalAlign,
     ImageFitMode, LineStyle, Shadow, VerticalAlign,
@@ -758,12 +758,16 @@ fn emit_lst_style(xml: &mut Xml, style: &EffTextStyle, is_placeholder: bool) {
         if let Some(f) = &style.font_family {
             match f {
                 FontFamily::Single(name) => {
-                    xml.leaf("a:latin", &[("typeface", name)]);
-                    xml.leaf("a:ea", &[("typeface", name)]);
+                    let lat = super::theme::safe_latin_typeface(name);
+                    let ea = super::theme::safe_ea_typeface(name);
+                    xml.leaf("a:latin", &[("typeface", lat)]);
+                    xml.leaf("a:ea", &[("typeface", ea)]);
                 }
                 FontFamily::Bilingual { latin, ea } => {
-                    xml.leaf("a:latin", &[("typeface", latin)]);
-                    xml.leaf("a:ea", &[("typeface", ea)]);
+                    let lat = super::theme::safe_latin_typeface(latin);
+                    let ea_safe = super::theme::safe_ea_typeface(ea);
+                    xml.leaf("a:latin", &[("typeface", lat)]);
+                    xml.leaf("a:ea", &[("typeface", ea_safe)]);
                 }
             }
         }
@@ -902,7 +906,7 @@ fn render_text(
         Some(TextAutofit::FitShape) => xml.leaf("a:spAutoFit", &[]),
         Some(TextAutofit::FitText) => xml.leaf("a:normAutofit", &[]),
         Some(TextAutofit::Fixed) => xml.leaf("a:noAutofit", &[]),
-        None => {}
+        None => xml.leaf("a:normAutofit", &[]),
     }
     xml.end("a:bodyPr");
     emit_lst_style(xml, &style, text.placeholder.is_some());
@@ -1256,6 +1260,17 @@ fn expand_math_runs(runs: &[RichRun]) -> Vec<RichRun> {
                 r.text = seg.text;
                 r.baseline = seg.baseline;
                 r.styled = run.styled || seg.baseline.is_some();
+                let is_variable = r.text.len() == 1
+                    && r.text
+                        .chars()
+                        .next()
+                        .map_or(false, |c| c.is_ascii_alphabetic());
+                if is_variable {
+                    r.italic = Some(true);
+                } else if r.text.chars().any(|c| !c.is_ascii_alphabetic()) {
+                    r.italic = Some(false);
+                }
+                r.family = Some("Arial".to_owned());
                 out.push(r);
             }
             rest = &after[end + 2..];
@@ -1306,7 +1321,7 @@ pub(crate) fn render_rich_body(
         Some(TextAutofit::FitShape) => xml.leaf("a:spAutoFit", &[]),
         Some(TextAutofit::FitText) => xml.leaf("a:normAutofit", &[]),
         Some(TextAutofit::Fixed) => xml.leaf("a:noAutofit", &[]),
-        None => {}
+        None => xml.leaf("a:normAutofit", &[]),
     }
     xml.end("a:bodyPr");
     emit_lst_style(xml, style, is_placeholder);
@@ -1437,7 +1452,10 @@ fn emit_run_styled(
         .and_then(|r| r.family.as_deref())
         .map(|f| FontFamily::Single(f.to_owned()))
         .or_else(|| style.font_family.clone())
-        .unwrap_or(FontFamily::Single("MiSans".to_owned()));
+        .unwrap_or_else(|| FontFamily::Bilingual {
+            latin: "Arial".to_owned(),
+            ea: "Microsoft YaHei".to_owned(),
+        });
     let color = run
         .and_then(|r| r.color.as_deref())
         .map(|c| Color(c.to_owned()))
@@ -1471,12 +1489,16 @@ fn emit_run_styled(
     emit_fill_color(xml, &resolved);
     match &font_family {
         FontFamily::Single(name) => {
-            xml.leaf("a:latin", &[("typeface", name)]);
-            xml.leaf("a:ea", &[("typeface", name)]);
+            let lat = super::theme::safe_latin_typeface(name);
+            let ea = super::theme::safe_ea_typeface(name);
+            xml.leaf("a:latin", &[("typeface", lat)]);
+            xml.leaf("a:ea", &[("typeface", ea)]);
         }
         FontFamily::Bilingual { latin, ea } => {
-            xml.leaf("a:latin", &[("typeface", latin)]);
-            xml.leaf("a:ea", &[("typeface", ea)]);
+            let lat = super::theme::safe_latin_typeface(latin);
+            let ea_safe = super::theme::safe_ea_typeface(ea);
+            xml.leaf("a:latin", &[("typeface", lat)]);
+            xml.leaf("a:ea", &[("typeface", ea_safe)]);
         }
     }
     xml.end("a:rPr");
@@ -1613,6 +1635,96 @@ fn parse_points(points: &str) -> Result<Vec<(f64, f64)>> {
         .collect()
 }
 
+fn line_stroke_xml(
+    xml: &mut Xml,
+    theme: Option<&Theme>,
+    border: Option<&Border>,
+    arrow: Option<(Option<ArrowType>, Option<ArrowType>)>,
+    curve: Option<LineCurve>,
+) -> Result<()> {
+    let width_attr = border
+        .and_then(|b| b.width)
+        .map(|w| emu(w).to_string())
+        .unwrap_or_else(|| emu(1.0).to_string());
+    let dash: Option<&str> = border.and_then(|b| b.style).map(|style| match style {
+        LineStyle::Solid => "solid",
+        LineStyle::Dash => "dash",
+        LineStyle::Dot => "dot",
+        LineStyle::SysDot => "sysDot",
+    });
+    let join = curve.map(line_join).unwrap_or("round");
+
+    xml.start(
+        "a:ln",
+        &[
+            ("w", &width_attr),
+            ("cmpd", "sng"),
+            ("cap", "rnd"),
+        ],
+    );
+
+    if let Some(border) = border {
+        if let Some(grad) = &border.gradient {
+            fill_xml(
+                xml,
+                theme,
+                &Fill::Gradient {
+                    gradient_type: grad.gradient_type,
+                    stops: grad.stops.clone(),
+                    angle: grad.angle,
+                    scaled: grad.scaled,
+                },
+                None,
+            )?;
+        } else if let Some(color) = &border.color {
+            let resolved = resolve_color(theme, color)?;
+            emit_fill_color(xml, &resolved);
+        } else {
+            let def = ResolvedColor {
+                rgb: "000000".to_owned(),
+                alpha: None,
+            };
+            emit_fill_color(xml, &def);
+        }
+    } else {
+        let def = ResolvedColor {
+            rgb: "000000".to_owned(),
+            alpha: None,
+        };
+        emit_fill_color(xml, &def);
+    }
+
+    if let Some(dash) = dash {
+        xml.leaf("a:prstDash", &[("val", dash)]);
+    }
+
+    xml.leaf(&format!("a:{join}"), &[]);
+
+    if let Some((head, tail)) = arrow {
+        if let Some(h) = head {
+            let t = match h {
+                ArrowType::Arrow => "triangle",
+                ArrowType::Stealth => "stealth",
+                ArrowType::Diamond => "diamond",
+                ArrowType::Oval => "oval",
+            };
+            xml.leaf("a:headEnd", &[("type", t), ("w", "med"), ("len", "med")]);
+        }
+        if let Some(t_arrow) = tail {
+            let t = match t_arrow {
+                ArrowType::Arrow => "triangle",
+                ArrowType::Stealth => "stealth",
+                ArrowType::Diamond => "diamond",
+                ArrowType::Oval => "oval",
+            };
+            xml.leaf("a:tailEnd", &[("type", t), ("w", "med"), ("len", "med")]);
+        }
+    }
+
+    xml.end("a:ln");
+    Ok(())
+}
+
 fn render_line(xml: &mut Xml, ctx: &mut RenderCtx<'_>, line: &Line) -> Result<()> {
     let id = ctx.next_id().to_string();
     let name = line.common.element_id.clone();
@@ -1624,89 +1736,135 @@ fn render_line(xml: &mut Xml, ctx: &mut RenderCtx<'_>, line: &Line) -> Result<()
         )));
     }
 
-    xml.start("p:cxnSp", &[]);
-    xml.start("p:nvCxnSpPr", &[]);
-    xml.start("p:cNvPr", &[("id", &id), ("name", &name)]);
-    xml.end("p:cNvPr");
-    xml.leaf("p:cNvCxnSpPr", &[]);
-    xml.leaf("p:nvPr", &[]);
-    xml.end("p:nvCxnSpPr");
-
-    xml.start("p:spPr", &[]);
-    xfrm(
-        xml,
-        line.common.bounds,
-        line.common.rotation,
-        line.common.flip,
-    );
-
-    // viewBox and points share one coordinate space (px in hand-written
-    // PPTD, raw EMU in converted decks). Emit them verbatim — the path
-    // space is relative, so any consistent unit works, and halving the
-    // magnitude keeps values inside OOXML's signed-int32 point range.
-    // (Scaling both by 12700 preserved the ratio but produced e.g.
-    // 91249817500, which PowerPoint clamps/overflows — a straight connector
-    // then shoots far past the slide edge — while LibreOffice normalized
-    // it away, hiding the bug in local previews.)
-    let path_w = (line.view_box.0.round() as i64).to_string();
-    let path_h = (line.view_box.1.round() as i64).to_string();
-    xml.start("a:custGeom", &[]);
-    xml.leaf("a:avLst", &[]);
-    xml.leaf("a:gdLst", &[]);
-    xml.leaf("a:ahLst", &[]);
-    xml.leaf("a:cxnLst", &[]);
-    xml.leaf("a:rect", &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")]);
-    xml.start("a:pathLst", &[]);
-    xml.start("a:path", &[("w", &path_w), ("h", &path_h)]);
-
     let smooth = matches!(line.curve, Some(LineCurve::Smooth));
-    // Every point is shrunk to the viewBox; the element-level transform
-    // (bounds) then scales it to the target geometry.
-    let (first, rest) = points.split_first().expect("len >= 2 checked above");
-    let first_x = (first.0.round() as i64).to_string();
-    let first_y = (first.1.round() as i64).to_string();
-    xml.start("a:moveTo", &[]);
-    xml.leaf("a:pt", &[("x", &first_x), ("y", &first_y)]);
-    xml.end("a:moveTo");
+    let is_straight_2pt = points.len() == 2 && !smooth;
 
-    if smooth {
-        for chunk in rest.chunks_exact(3) {
-            let p1 = emu(chunk[0].0).to_string();
-            let p1y = emu(chunk[0].1).to_string();
-            let p2 = emu(chunk[1].0).to_string();
-            let p2y = emu(chunk[1].1).to_string();
-            let p3 = emu(chunk[2].0).to_string();
-            let p3y = emu(chunk[2].1).to_string();
-            xml.start("a:cubicBezTo", &[]);
-            xml.leaf("a:pt", &[("x", &p1), ("y", &p1y)]);
-            xml.leaf("a:pt", &[("x", &p2), ("y", &p2y)]);
-            xml.leaf("a:pt", &[("x", &p3), ("y", &p3y)]);
-            xml.end("a:cTo");
-        }
-    } else {
-        for (x, y) in rest {
-            let x = (x.round() as i64).to_string();
-            let y = (y.round() as i64).to_string();
-            xml.start("a:lnTo", &[]);
-            xml.leaf("a:pt", &[("x", &x), ("y", &y)]);
-            xml.end("a:lnTo");
-        }
-    }
-    xml.end("a:path");
-    xml.end("a:pathLst");
-    xml.end("a:custGeom");
+    if is_straight_2pt {
+        let (p0, p1) = (points[0], points[1]);
+        let min_x = p0.0.min(p1.0);
+        let max_x = p0.0.max(p1.0);
+        let min_y = p0.1.min(p1.1);
+        let max_y = p0.1.max(p1.1);
 
-    if let Some(border) = &line.border {
-        border_xml(xml, ctx.theme, border)?;
+        let span_x = max_x - min_x;
+        let span_y = max_y - min_y;
+
+        let scale_x = if line.view_box.0 > 0.0 {
+            line.common.bounds.width / line.view_box.0
+        } else {
+            1.0
+        };
+        let scale_y = if line.view_box.1 > 0.0 {
+            line.common.bounds.height / line.view_box.1
+        } else {
+            1.0
+        };
+
+        let actual_x = line.common.bounds.x + min_x * scale_x;
+        let actual_y = line.common.bounds.y + min_y * scale_y;
+        let actual_w = (span_x * scale_x).max(1.0);
+        let actual_h = (span_y * scale_y).max(1.0);
+
+        let mut flip_h = line.common.flip.map_or(false, |f| f.0);
+        let mut flip_v = line.common.flip.map_or(false, |f| f.1);
+        if p1.0 < p0.0 {
+            flip_h = !flip_h;
+        }
+        if p1.1 < p0.1 {
+            flip_v = !flip_v;
+        }
+
+        let bounds = Bounds {
+            x: actual_x,
+            y: actual_y,
+            width: if span_x < 1e-4 { 0.0 } else { actual_w },
+            height: if span_y < 1e-4 { 0.0 } else { actual_h },
+        };
+
+        xml.start("p:cxnSp", &[]);
+        xml.start("p:nvCxnSpPr", &[]);
+        xml.start("p:cNvPr", &[("id", &id), ("name", &name)]);
+        xml.end("p:cNvPr");
+        xml.leaf("p:cNvCxnSpPr", &[]);
+        xml.leaf("p:nvPr", &[]);
+        xml.end("p:nvCxnSpPr");
+
+        xml.start("p:spPr", &[]);
+        xfrm(xml, bounds, line.common.rotation, Some((flip_h, flip_v)));
+        xml.start("a:prstGeom", &[("prst", "line")]);
+        xml.leaf("a:avLst", &[]);
+        xml.end("a:prstGeom");
+
+        line_stroke_xml(xml, ctx.theme, line.border.as_ref(), line.arrow, line.curve)?;
+        xml.end("p:spPr");
+        xml.end("p:cxnSp");
     } else {
-        let w = emu(1.0).to_string();
-        let join = line.curve.map(line_join).unwrap_or("round");
-        xml.start("a:ln", &[("w", &w), ("cmpd", "sng"), ("cap", "rnd")]);
-        xml.leaf(&format!("a:{join}"), &[]);
-        xml.end("a:ln");
+        xml.start("p:sp", &[]);
+        xml.start("p:nvSpPr", &[]);
+        xml.start("p:cNvPr", &[("id", &id), ("name", &name)]);
+        xml.end("p:cNvPr");
+        xml.leaf("p:cNvSpPr", &[]);
+        xml.leaf("p:nvPr", &[]);
+        xml.end("p:nvSpPr");
+
+        xml.start("p:spPr", &[]);
+        xfrm(
+            xml,
+            line.common.bounds,
+            line.common.rotation,
+            line.common.flip,
+        );
+
+        let path_w = (line.view_box.0.round() as i64).to_string();
+        let path_h = (line.view_box.1.round() as i64).to_string();
+        xml.start("a:custGeom", &[]);
+        xml.leaf("a:avLst", &[]);
+        xml.leaf("a:gdLst", &[]);
+        xml.leaf("a:ahLst", &[]);
+        xml.leaf("a:cxnLst", &[]);
+        xml.leaf("a:rect", &[("l", "0"), ("t", "0"), ("r", "0"), ("b", "0")]);
+        xml.start("a:pathLst", &[]);
+        xml.start("a:path", &[("w", &path_w), ("h", &path_h)]);
+
+        let (first, rest) = points.split_first().expect("len >= 2 checked above");
+        let first_x = (first.0.round() as i64).to_string();
+        let first_y = (first.1.round() as i64).to_string();
+        xml.start("a:moveTo", &[]);
+        xml.leaf("a:pt", &[("x", &first_x), ("y", &first_y)]);
+        xml.end("a:moveTo");
+
+        if smooth {
+            for chunk in rest.chunks_exact(3) {
+                let p1 = emu(chunk[0].0).to_string();
+                let p1y = emu(chunk[0].1).to_string();
+                let p2 = emu(chunk[1].0).to_string();
+                let p2y = emu(chunk[1].1).to_string();
+                let p3 = emu(chunk[2].0).to_string();
+                let p3y = emu(chunk[2].1).to_string();
+                xml.start("a:cubicBezTo", &[]);
+                xml.leaf("a:pt", &[("x", &p1), ("y", &p1y)]);
+                xml.leaf("a:pt", &[("x", &p2), ("y", &p2y)]);
+                xml.leaf("a:pt", &[("x", &p3), ("y", &p3y)]);
+                xml.end("a:cTo");
+            }
+        } else {
+            for (x, y) in rest {
+                let x = (x.round() as i64).to_string();
+                let y = (y.round() as i64).to_string();
+                xml.start("a:lnTo", &[]);
+                xml.leaf("a:pt", &[("x", &x), ("y", &y)]);
+                xml.end("a:lnTo");
+            }
+        }
+        xml.end("a:path");
+        xml.end("a:pathLst");
+        xml.end("a:custGeom");
+
+        xml.leaf("a:noFill", &[]);
+        line_stroke_xml(xml, ctx.theme, line.border.as_ref(), line.arrow, line.curve)?;
+        xml.end("p:spPr");
+        xml.end("p:sp");
     }
-    xml.end("p:spPr");
-    xml.end("p:cxnSp");
     Ok(())
 }
 

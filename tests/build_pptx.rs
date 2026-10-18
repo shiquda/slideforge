@@ -246,3 +246,126 @@ fn table_deck_produces_native_tbl() {
     assert!(slide.contains("b=\"1\""), "header runs must be bold");
     let _ = fs::remove_file(&path);
 }
+
+#[test]
+fn line_arrows_and_straight_geometry() {
+    let deck = r#"
+version: v2
+title: Line Test
+size: [960, 540]
+pages: [pages/p.page]
+"#;
+    let page = r##"
+elements:
+  - elementId: l1
+    elementType: line
+    bounds: [100, 100, 200, 150]
+    viewBox: [200, 150]
+    points: "0,0 200,150"
+    arrow: [arrow, stealth]
+    border: {style: solid, width: 2, color: "#FF0000"}
+"##;
+    let dir = std::env::temp_dir().join(format!("slideforge-line-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(dir.join("deck.pptd"), deck).unwrap();
+    fs::write(dir.join("pages/p.page"), page).unwrap();
+
+    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
+    let path = out_path("line_arrow");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("line deck must build");
+
+    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
+    assert!(slide.contains("<p:cxnSp>"), "straight 2pt line should be cxnSp");
+    assert!(slide.contains("prst=\"line\""), "straight line must have prst=line");
+    assert!(slide.contains("<a:headEnd type=\"triangle\""), "arrow head missing");
+    assert!(slide.contains("<a:tailEnd type=\"stealth\""), "stealth tail missing");
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn font_fallback_maps_misans_safely() {
+    let deck = r#"
+version: v2
+title: Font Test
+size: [960, 540]
+theme:
+  textStyles:
+    body:
+      fontFamily: MiSans
+pages: [pages/p.page]
+"#;
+    let page = r#"
+elements:
+  - elementId: t1
+    elementType: text
+    bounds: [50, 50, 400, 100]
+    content:
+      fontFamily: MiSans
+      text: "测试安全字体回退"
+"#;
+    let dir = std::env::temp_dir().join(format!("slideforge-font-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(dir.join("deck.pptd"), deck).unwrap();
+    fs::write(dir.join("pages/p.page"), page).unwrap();
+
+    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
+    let path = out_path("font_test");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("font test deck must build");
+
+    let theme = read_zip_part(&path, "ppt/theme/theme1.xml");
+    assert!(theme.contains("Microsoft YaHei"), "theme ea font must be Microsoft YaHei");
+    assert!(!theme.contains("typeface=\"MiSans\""), "theme must not have MiSans directly");
+
+    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
+    assert!(slide.contains("typeface=\"Microsoft YaHei\""), "slide ea font must be Microsoft YaHei");
+    assert!(!slide.contains("typeface=\"MiSans\""), "slide must not have MiSans directly");
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn math_formula_variable_italics_and_subscripts() {
+    let deck = r#"
+version: v2
+title: Math Test
+size: [960, 540]
+pages: [pages/p.page]
+"#;
+    let page = r#"
+elements:
+  - elementId: m1
+    elementType: text
+    bounds: [50, 50, 400, 100]
+    content:
+      text: |
+        <p>公式 \(h(s_t) \ge 0\)</p>
+"#;
+    let dir = std::env::temp_dir().join(format!("slideforge-math-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(dir.join("deck.pptd"), deck).unwrap();
+    fs::write(dir.join("pages/p.page"), page).unwrap();
+
+    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
+    let path = out_path("math_test");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("math deck must build");
+
+    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
+    assert!(slide.contains("baseline=\"-25000\""), "subscript baseline shift missing");
+    assert!(slide.contains("i=\"1\""), "math variable italic missing");
+    assert!(slide.contains("≥"), "ge symbol missing");
+    let _ = fs::remove_file(&path);
+}
