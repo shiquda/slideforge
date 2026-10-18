@@ -89,3 +89,75 @@ fn reverse_keeps_theme_colors_and_size() {
         "size drifted: {size:?}"
     );
 }
+
+/// Tables survive the reverse direction: `a:tbl` → PPTD `table` with grid
+/// ratios, spans, text and resolved cell fills; the converted project must
+/// also rebuild.
+#[test]
+fn table_fixture_roundtrips_through_convert() {
+    let work = temp_dir("tables");
+    let first_pptx = work.join("first.pptx");
+    let project = pptd::load_project(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/tables/tables.pptd"),
+    )
+    .unwrap();
+    pptx::writer::PptxWriter::new(&project)
+        .build(&first_pptx)
+        .unwrap();
+
+    let converted = work.join("converted");
+    let report = pptx::import::convert_pptx_to_pptd(&first_pptx, &converted).unwrap();
+    assert!(
+        report.skipped.is_empty(),
+        "tables must not be skipped any more: {:?}",
+        report.skipped
+    );
+
+    let project = pptd::load_project(&converted.join("deck.pptd")).unwrap();
+    let page = project
+        .pages
+        .first()
+        .expect("converted project keeps its page");
+    let tables: Vec<_> = page
+        .elements
+        .iter()
+        .filter(|e| e.type_name() == "table")
+        .collect();
+    assert_eq!(tables.len(), 1, "exactly one table expected");
+    let pptd::Element::Table(table) = tables[0] else {
+        unreachable!()
+    };
+    assert_eq!(table.rows.len(), 3);
+    assert_eq!(table.column_widths.len(), 3);
+    // The `colSpan=2` origin survives; the covered cell is dropped.
+    assert_eq!(table.rows[1].len(), 2);
+    assert_eq!(table.rows[1][0].col_span, Some(2));
+    let texts: Vec<&str> = table
+        .rows
+        .iter()
+        .flat_map(|r| r.iter())
+        .filter_map(|c| c.text.as_deref())
+        .collect();
+    for needle in ["名称", "合并单元格", "右侧"] {
+        assert!(
+            texts.iter().any(|t| t.contains(needle)),
+            "cell text `{needle}` lost"
+        );
+    }
+    // Header fill was resolved from the theme `$primary` reference.
+    assert!(
+        table.rows[0][0]
+            .fill
+            .as_ref()
+            .is_some_and(|f| matches!(f, pptd::shared::Fill::Solid { color } if color.0 == "#2F5D50")),
+        "header fill must survive as solid #2F5D50"
+    );
+
+    // And the converted project builds again.
+    let second = work.join("second.pptx");
+    pptx::writer::PptxWriter::new(&project)
+        .build(&second)
+        .expect("converted project must rebuild");
+    let _ = fs::remove_dir_all(&work);
+}

@@ -1445,18 +1445,20 @@ fn walk_sp_tree_child(
         "graphicFrame" => {
             let name = cnv_name(el).unwrap_or_else(|| "graphicFrame".into());
             let uri = graphic_uri(el).unwrap_or_default();
-            let kind = if uri.contains("/chart") {
-                "chart"
-            } else if uri.contains("/table") {
-                "table"
+            if uri.contains("/table") {
+                out.push(map_table(el, ctx, group));
             } else {
-                "graphicFrame"
-            };
-            ctx.skip(
-                &name,
-                format!("{kind} elements are not representable in PPTD"),
-            );
-            out.push(None);
+                let kind = if uri.contains("/chart") {
+                    "chart"
+                } else {
+                    "graphicFrame"
+                };
+                ctx.skip(
+                    &name,
+                    format!("{kind} elements are not representable in PPTD"),
+                );
+                out.push(None);
+            }
         }
         "oleObj" => {
             ctx.skip(
@@ -2631,6 +2633,166 @@ fn pt(el: &XmlEl, guides: &GeomGuides) -> std::result::Result<(f64, f64), String
             "path point references an unknown guide (x={x_raw:?} y={y_raw:?})"
         )),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tables (`graphicFrame` + `a:tbl`)
+// ---------------------------------------------------------------------------
+
+/// One `a:lnL/lnR/lnT/lnB` cell border. Absent from `tcPr` → `None` (side not
+/// specified); present with `noFill` → `Some(None)` (explicitly cleared).
+fn cell_side_border(tc_pr: Option<&XmlEl>, tag: &str, slots: &SlotColors) -> Option<Option<Border>> {
+    let ln = tc_pr.and_then(|p| first(p, tag))?;
+    if first(ln, "noFill").is_some() {
+        return Some(None);
+    }
+    Some(Some(Border {
+        style: first(ln, "prstDash")
+            .and_then(|d| attr(d, "val"))
+            .map(|v| match v {
+                "dash" => LineStyle::Dash,
+                "dot" => LineStyle::Dot,
+                "sysDot" => LineStyle::SysDot,
+                _ => LineStyle::Solid,
+            }),
+        width: attr(ln, "w").and_then(|w| w.parse::<f64>().ok()).map(px),
+        color: first(ln, "solidFill").and_then(|f| color_from_fill(f, slots)),
+        gradient: None,
+    }))
+}
+
+/// Assemble the PPTD `BorderSpec` from per-side results. All sides absent →
+/// `None` (border field unset); all four identical → uniform; otherwise the
+/// clockwise four-side form (a cleared/absent side becomes `null`).
+fn cell_border_spec(sides: [Option<Option<Border>>; 4]) -> Option<crate::pptd::shared::BorderSpec> {
+    if sides.iter().all(|s| s.is_none()) {
+        return None;
+    }
+    let [l, r, t, b] = sides;
+    let to_opt = |s: Option<Option<Border>>| s.flatten();
+    let (l, r, t, b) = (to_opt(l), to_opt(r), to_opt(t), to_opt(b));
+    if [&l, &r, &t, &b].iter().all(|s| s.is_some()) && l == r && r == t && t == b {
+        return l.map(crate::pptd::shared::BorderSpec::Uniform);
+    }
+    Some(crate::pptd::shared::BorderSpec::Clockwise([t, r, b, l]))
+}
+
+/// `graphicFrame` carrying table graphicData → PPTD `table` element.
+///
+/// Merge reconstruction mirrors the forward writer: `hMerge` / `vMerge`
+/// placeholder cells are dropped from the ragged `rows` arrays, while the
+/// origin cell carries `rowSpan` / `colSpan`.
+fn map_table(el: &XmlEl, ctx: &mut PageCtx<'_>, group: Option<&Xform>) -> Option<Element> {
+    let name = cnv_name(el).unwrap_or_else(|| "table".into());
+    let xfrm_el = first(el, "xfrm")?;
+    let x = Xform::parse(xfrm_el).apply(group);
+    let tbl = first(el, "graphic")
+        .and_then(|g| first(g, "graphicData"))
+        .and_then(|d| first(d, "tbl"))?;
+
+    let grid_cols: Vec<f64> = first(tbl, "tblGrid")
+        .map(|g| {
+            children(g, "gridCol")
+                .iter()
+                .filter_map(|c| attr(c, "w").and_then(|w| w.parse::<f64>().ok()).map(px))
+                .collect()
+        })
+        .unwrap_or_default();
+    let trs = children(tbl, "tr");
+    if grid_cols.is_empty() || trs.is_empty() {
+        ctx.skip(&name, "table without a grid or rows");
+        return None;
+    }
+    let col_sum: f64 = grid_cols.iter().sum();
+    let column_widths: Vec<f64> = grid_cols.iter().map(|w| w / col_sum).collect();
+    let raw_heights: Vec<f64> = trs
+        .iter()
+        .map(|tr| {
+            attr(tr, "h")
+                .and_then(|h| h.parse::<f64>().ok())
+                .map(px)
+                .unwrap_or(0.0)
+        })
+        .collect();
+    let height_sum: f64 = raw_heights.iter().sum();
+    let row_heights: Vec<f64> = if height_sum > 0.0 {
+        raw_heights.iter().map(|h| h / height_sum).collect()
+    } else {
+        vec![1.0 / trs.len() as f64; trs.len()]
+    };
+
+    let mut rows: Vec<Vec<crate::pptd::elements::Cell>> = Vec::new();
+    for tr in &trs {
+        let mut row = Vec::new();
+        for tc in children(tr, "tc") {
+            let merged = |key: &str| attr(tc, key).is_some_and(|v| v == "1" || v == "true");
+            if merged("hMerge") || merged("vMerge") {
+                continue; // covered by an origin cell's span
+            }
+            let row_span = attr(tc, "rowSpan").and_then(|v| v.parse::<u32>().ok());
+            let col_span = attr(tc, "gridSpan").and_then(|v| v.parse::<u32>().ok());
+            let content = first(tc, "txBody").and_then(|t| text_content(t, ctx.slots, ctx, &name));
+            let tc_pr = first(tc, "tcPr");
+            let fill = tc_pr
+                .and_then(|p| first(p, "solidFill"))
+                .and_then(|f| color_from_fill(f, ctx.slots))
+                .map(|c| Fill::Solid { color: c });
+            let border = cell_border_spec([
+                cell_side_border(tc_pr, "lnL", ctx.slots),
+                cell_side_border(tc_pr, "lnR", ctx.slots),
+                cell_side_border(tc_pr, "lnT", ctx.slots),
+                cell_side_border(tc_pr, "lnB", ctx.slots),
+            ]);
+            // tcPr anchor wins over the txBody bodyPr anchor when present.
+            let mut align = content.as_ref().and_then(|c| c.align);
+            if let Some(anchor) = tc_pr.and_then(|p| attr(p, "anchor")) {
+                let vertical = match anchor {
+                    "t" => VerticalAlign::Top,
+                    "b" => VerticalAlign::Bottom,
+                    _ => VerticalAlign::Middle,
+                };
+                align = Some(Alignment {
+                    horizontal: align.map(|a| a.horizontal).unwrap_or_default(),
+                    vertical,
+                });
+            }
+            row.push(crate::pptd::elements::Cell {
+                text: content.as_ref().map(|c| c.text.clone()),
+                text_style: None,
+                color: content.as_ref().and_then(|c| c.color.clone()),
+                font_size: content.as_ref().and_then(|c| c.font_size),
+                font_family: content.as_ref().and_then(|c| c.font_family.clone()),
+                bold: content.as_ref().and_then(|c| c.bold),
+                italic: content.as_ref().and_then(|c| c.italic),
+                background_color: None,
+                line_height: content.as_ref().and_then(|c| c.line_height),
+                line_height_px: None,
+                letter_spacing: None,
+                margin_top: None,
+                fill,
+                border,
+                align,
+                row_span,
+                col_span,
+            });
+        }
+        rows.push(row);
+    }
+
+    let fill = first(tbl, "tblPr")
+        .and_then(|p| first(p, "solidFill"))
+        .and_then(|f| color_from_fill(f, ctx.slots))
+        .map(|c| Fill::Solid { color: c });
+    let id = ctx.unique_id(&name, "table");
+    Some(Element::Table(crate::pptd::elements::Table {
+        common: common(&x, id),
+        column_widths,
+        row_heights,
+        rows,
+        style: None,
+        fill,
+        shadow: None,
+    }))
 }
 
 // ---------------------------------------------------------------------------
