@@ -1037,6 +1037,7 @@ fn parse_rich(text: &str) -> Vec<RichPara> {
                 bold: None,
                 italic: None,
                 styled: false,
+                baseline: None,
             }],
         }
     }
@@ -1130,6 +1131,7 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
             bold: f.bold,
             italic: f.italic,
             styled: f.styled,
+            baseline: None,
         });
     }
 
@@ -1214,6 +1216,52 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
         merged.push(run);
     }
     merged
+}
+
+/// Expand inline `\(...\)` LaTeX formulas in rich runs into styled text runs
+/// (Unicode symbols + baseline-shifted scripts) via [`super::math`]. Runs
+/// without a formula pass through unchanged.
+fn expand_math_runs(runs: &[RichRun]) -> Vec<RichRun> {
+    let mut out: Vec<RichRun> = Vec::new();
+    for run in runs {
+        if !run.text.contains("\\(") {
+            out.push(run.clone());
+            continue;
+        }
+        let mut rest = run.text.as_str();
+        loop {
+            let Some(start) = rest.find("\\(") else {
+                if !rest.is_empty() {
+                    let mut r = run.clone();
+                    r.text = rest.to_owned();
+                    out.push(r);
+                }
+                break;
+            };
+            if start > 0 {
+                let mut r = run.clone();
+                r.text = rest[..start].to_owned();
+                out.push(r);
+            }
+            let after = &rest[start + 2..];
+            let Some(end) = after.find("\\)") else {
+                // Unterminated formula: keep the remainder verbatim.
+                let mut r = run.clone();
+                r.text = rest[start..].to_owned();
+                out.push(r);
+                break;
+            };
+            for seg in super::math::latex_to_segments(&after[..end]) {
+                let mut r = run.clone();
+                r.text = seg.text;
+                r.baseline = seg.baseline;
+                r.styled = run.styled || seg.baseline.is_some();
+                out.push(r);
+            }
+            rest = &after[end + 2..];
+        }
+    }
+    out
 }
 
 /// Render a rich-text body (inside an open `p:txBody`): per-paragraph `pPr`
@@ -1316,15 +1364,15 @@ pub(crate) fn render_rich_body(
         emit_bullet(xml, style);
         xml.end("a:pPr");
 
-        for run in &para.runs {
+        let math_runs = expand_math_runs(&para.runs);
+        for run in &math_runs {
             emit_run_styled(xml, theme, style, Some(run), &run.text);
         }
         // A paragraph with no runs is an empty spacer line; emitting an
         // endParaRPr would also pin its paragraph-mark size, changing the
         // spacer height versus the source (which has no endParaRPr either).
-        if !para.runs.is_empty() {
-            let sz = para
-                .runs
+        if !math_runs.is_empty() {
+            let sz = math_runs
                 .iter()
                 .find(|r| r.size.is_some())
                 .and_then(|r| r.size)
@@ -1346,6 +1394,7 @@ fn emit_run(xml: &mut Xml, theme: Option<&Theme>, style: &EffTextStyle, text: &s
 }
 
 /// Effective per-run override parsed from PPTD rich text.
+#[derive(Clone)]
 struct RichRun {
     text: String,
     size: Option<f64>,
@@ -1355,6 +1404,8 @@ struct RichRun {
     bold: Option<bool>,
     italic: Option<bool>,
     styled: bool,
+    /// OOXML `a:rPr@baseline` shift (1000ths of a percent) for math scripts.
+    baseline: Option<i32>,
 }
 
 /// One rich-text paragraph: per-paragraph overrides + runs.
@@ -1376,7 +1427,12 @@ fn emit_run_styled(
     text: &str,
 ) {
     let run = run.filter(|r| r.styled);
-    let font_size = run.and_then(|r| r.size).or(style.font_size).unwrap_or(18.0);
+    // Math script runs (baseline set) without an explicit size render at 70%.
+    let baseline = run.and_then(|r| r.baseline);
+    let mut font_size = run.and_then(|r| r.size).or(style.font_size).unwrap_or(18.0);
+    if baseline.is_some() && run.and_then(|r| r.size).is_none() {
+        font_size *= 0.7;
+    }
     let font_family = run
         .and_then(|r| r.family.as_deref())
         .map(|f| FontFamily::Single(f.to_owned()))
@@ -1400,6 +1456,11 @@ fn emit_run_styled(
     if italic {
         attrs.push(("i", "1"));
     }
+    let baseline_attr = baseline.map(|b| b.to_string());
+    if let Some(bl) = &baseline_attr {
+        attrs.push(("baseline", bl));
+    }
+
 
     xml.start("a:r", &[]);
     xml.start("a:rPr", &attrs);

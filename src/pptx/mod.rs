@@ -12,6 +12,7 @@
 
 pub mod fa;
 pub mod import;
+pub mod math;
 pub mod media;
 pub mod opc;
 pub mod table;
