@@ -1,9 +1,9 @@
 //! Element → drawingml rendering inside a slide's `cSld/spTree`.
 //!
 //! Supported: `text`, `shape`, `line`, `icon` (Font Awesome glyphs as custom
-//! geometry) and `image` (blip media parts). Unsupported (`table`, `chart`)
-//! fail with an explicit [`Error::Unsupported`]. Shape drop shadows
-//! (`a:effectLst > a:outerShdw`, incl. `sx`/`sy` scale + `algn`) and
+//! geometry), `image` (blip media parts) and `table` (native `<a:tbl>`).
+//! Unsupported (`chart`) fails with an explicit [`Error::Unsupported`]. Shape
+//! drop shadows (`a:effectLst > a:outerShdw`, incl. `sx`/`sy` scale + `algn`)
 //! `<p:grpSp>` group reconstruction (SlideForge group extension) are
 //! supported.
 
@@ -48,7 +48,7 @@ impl<'a> RenderCtx<'a> {
         }
     }
 
-    fn next_id(&mut self) -> usize {
+    pub(crate) fn next_id(&mut self) -> usize {
         self.shape_id += 1;
         self.shape_id
     }
@@ -82,11 +82,12 @@ pub fn render_element(
         Element::Line(line) => render_line(xml, ctx, line),
         Element::Icon(icon) => render_icon(xml, ctx, icon),
         Element::Image(image) => render_image(xml, ctx, image),
+        Element::Table(table) => super::table::render_table(xml, ctx, table),
         Element::Video(m) => render_media(xml, ctx, m, "video"),
         Element::Audio(m) => render_media(xml, ctx, m, "audio"),
         other => Err(Error::Unsupported(format!(
             "element `{}` of type `{}` on page {} is not supported yet \
-             (supported so far: text, shape, line, icon, image, video, audio)",
+             (supported so far: text, shape, line, icon, image, table, video, audio)",
             other.element_id(),
             other.type_name(),
             page_index + 1
@@ -1217,7 +1218,7 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
 
 /// Render a rich-text body (inside an open `p:txBody`): per-paragraph `pPr`
 /// + styled runs.
-fn render_rich_body(
+pub(crate) fn render_rich_body(
     xml: &mut Xml,
     theme: Option<&Theme>,
     style: &EffTextStyle,

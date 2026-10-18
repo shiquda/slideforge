@@ -218,3 +218,31 @@ elements:
     assert!(message.contains("`c`"), "should name the chart element");
     assert!(message.contains("page 1"), "should name the page");
 }
+
+/// Tables compile to a native `<a:tbl>` graphic frame: grid, per-cell rich
+/// text, theme-driven header styling and `colSpan` merges all survive.
+#[test]
+fn table_deck_produces_native_tbl() {
+    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tables/tables.pptd");
+    let project = pptd::load_project(Path::new(fixture)).unwrap();
+    let path = out_path("table");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("table deck must build");
+
+    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
+    assert!(slide.contains("<a:tbl>"), "must contain a native table");
+    assert_eq!(slide.matches("<a:gridCol").count(), 3, "three grid columns");
+    assert_eq!(slide.matches("<a:tr ").count(), 3, "three rows");
+    assert!(slide.contains("gridSpan=\"2\""), "colSpan=2 must map to gridSpan");
+    assert!(slide.contains("hMerge=\"1\""), "covered cell must be hMerge");
+    for text in ["名称", "合并单元格", "粗体"] {
+        assert!(slide.contains(text), "cell text `{text}` must survive");
+    }
+    // Header row resolves `firstRowStyle` through the theme `$` reference.
+    assert!(slide.contains("2F5D50"), "header fill must resolve $primary");
+    assert!(slide.contains("b=\"1\""), "header runs must be bold");
+    let _ = fs::remove_file(&path);
+}

@@ -1,0 +1,21 @@
+version: v2
+title: Table fixture
+size: [960, 540]
+theme:
+  colors:
+    primary: "#2F5D50"
+    paper: "#F5EFE2"
+  tableStyles:
+    default:
+      cellStyle:
+        fontSize: 14
+        color: "#29241B"
+        border: [null, null, {style: solid, width: 1, color: "#C9BEA3"}, null]
+        align: [left, middle]
+        fill: {type: solid, color: "$paper"}
+      firstRowStyle:
+        fill: {type: solid, color: "$primary"}
+        color: "#FCF9F1"
+        bold: true
+pages:
+  - pages/1_table.page

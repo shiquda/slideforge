@@ -14,6 +14,7 @@ pub mod fa;
 pub mod import;
 pub mod media;
 pub mod opc;
+pub mod table;
 pub mod package;
 pub mod render;
 pub mod svg_path;

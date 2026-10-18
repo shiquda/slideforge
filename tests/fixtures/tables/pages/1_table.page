@@ -1,0 +1,19 @@
+pageType: content
+elements:
+  - elementId: tbl
+    elementType: table
+    bounds: [100, 100, 600, 300]
+    columnWidths: [0.5, 0.25, 0.25]
+    rowHeights: [0.34, 0.33, 0.33]
+    style: "$default"
+    rows:
+      - - text: "名称"
+        - text: "年份"
+        - text: "备注"
+      - - text: "合并单元格"
+          colSpan: 2
+        - text: "右侧"
+      - - text: "跨行"
+          rowSpan: 1
+        - text: "<p><strong>粗体</strong> 常规</p>"
+        - text: ""
