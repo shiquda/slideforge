@@ -33,7 +33,10 @@ fn icons() -> &'static HashMap<String, FaIcon> {
 /// Look up an icon by its PPTD name (`"fas:mobile-screen"`); unknown style
 /// prefixes or names return `None`.
 pub fn lookup(name: &str) -> Option<&'static FaIcon> {
-    let key = name.split_once(':').map(|(_, key)| key).unwrap_or(name);
+    let mut key = name.split_once(':').map(|(_, key)| key).unwrap_or(name);
+    if let Some(stripped) = key.strip_prefix("fa-") {
+        key = stripped;
+    }
     icons().get(key)
 }
 

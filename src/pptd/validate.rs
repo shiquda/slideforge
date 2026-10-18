@@ -298,6 +298,15 @@ fn validate_element(
             );
         }
         Element::Icon(icon) => {
+            if crate::pptx::fa::lookup(&icon.icon_name).is_none() {
+                out.push(Diagnostic {
+                    page: Some(page_idx + 1),
+                    message: format!(
+                        "element `{}`: icon `{}` is not in the embedded Font Awesome dataset (1422 icons supported)",
+                        icon.common.element_id, icon.icon_name
+                    ),
+                });
+            }
             check_fill(
                 project,
                 theme,
