@@ -333,6 +333,49 @@ elements:
 }
 
 #[test]
+fn font_fallback_maps_source_han_serif_safely() {
+    let deck = r#"
+version: v2
+title: Serif Font Test
+size: [960, 540]
+theme:
+  textStyles:
+    title:
+      fontFamily: 思源宋体
+pages: [pages/p.page]
+"#;
+    let page = r#"
+elements:
+  - elementId: t1
+    elementType: text
+    bounds: [50, 50, 400, 100]
+    content:
+      fontFamily: 思源宋体
+      text: "测试宋体安全回退"
+"#;
+    let dir = std::env::temp_dir().join(format!("slideforge-serif-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(dir.join("deck.pptd"), deck).unwrap();
+    fs::write(dir.join("pages/p.page"), page).unwrap();
+
+    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
+    let path = out_path("serif_font_test");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("serif font test deck must build");
+
+    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
+    assert!(slide.contains("typeface=\"SimSun\""), "slide ea font must be SimSun");
+    assert!(slide.contains("typeface=\"Georgia\""), "slide latin font must be Georgia");
+    assert!(!slide.contains("typeface=\"思源宋体\""), "slide must not have 思源宋体 as latin");
+    assert!(!slide.contains("typeface=\"Source Han Serif SC\""), "slide must not have uninstalled Source Han Serif SC directly");
+    let _ = fs::remove_file(&path);
+}
+
+#[test]
 fn math_formula_variable_italics_and_subscripts() {
     let deck = r#"
 version: v2

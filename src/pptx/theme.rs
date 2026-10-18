@@ -322,7 +322,7 @@ pub fn safe_ea_typeface(name: &str) -> &str {
         "微软雅黑" | "Microsoft YaHei" | "MS YaHei" | "雅黑" => "Microsoft YaHei",
         "苹方" | "苹方-简" | "PingFang SC" => "PingFang SC",
         "思源黑体" | "Source Han Sans" | "Source Han Sans SC" | "Noto Sans SC" => "Microsoft YaHei",
-        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" => "Source Han Serif SC",
+        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" => "SimSun",
         "宋体" | "SimSun" | "中易宋体" | "Songti SC" => "SimSun",
         "" => "Microsoft YaHei",
         other => other,
@@ -334,6 +334,7 @@ pub fn safe_latin_typeface(name: &str) -> &str {
     let trimmed = name.trim();
     match trimmed {
         "MiSans" | "misans" | "Liter" | "liter" => "Arial",
+        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" | "宋体" | "SimSun" | "Songti SC" => "Georgia",
         "QuattrocentoSans" => "Arial",
         "SortsMillGoudy" => "Georgia",
         "" => "Arial",
