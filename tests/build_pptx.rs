@@ -414,3 +414,46 @@ elements:
     assert!(slide.contains("<a:cs typeface=\"Times New Roman\"/>"), "Complex script math font missing");
     let _ = fs::remove_file(&path);
 }
+
+#[test]
+fn math_formula_operator_upright_and_variable_italic() {
+    let deck = r#"
+version: v2
+title: Math Operator Test
+size: [960, 540]
+pages: [pages/p.page]
+"#;
+    let page = r#"
+elements:
+  - elementId: m2
+    elementType: text
+    bounds: [50, 50, 400, 100]
+    content:
+      text: |
+        <p>公式 \(\sin(x) + \max(y, z)\)</p>
+"#;
+    let dir = std::env::temp_dir().join(format!("slideforge-math-op-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(dir.join("deck.pptd"), deck).unwrap();
+    fs::write(dir.join("pages/p.page"), page).unwrap();
+
+    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
+    let path = out_path("math_op_test");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("math operator deck must build");
+
+    let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
+    // Variables x, y, z must have italic i="1"
+    assert!(slide.contains("<a:t>x</a:t>"), "variable x missing");
+    assert!(slide.contains("<a:t>sin</a:t>"), "operator sin missing");
+    // Ensure sin run does not have i="1"
+    let sin_idx = slide.find("<a:t>sin</a:t>").unwrap();
+    let sin_r_start = slide[..sin_idx].rfind("<a:r>").unwrap();
+    let sin_run = &slide[sin_r_start..sin_idx];
+    assert!(!sin_run.contains("i=\"1\""), "operator sin must be upright (no i=\"1\")");
+    let _ = fs::remove_file(&path);
+}

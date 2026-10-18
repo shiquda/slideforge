@@ -1292,7 +1292,8 @@ fn expand_math_runs(runs: &[RichRun]) -> Vec<RichRun> {
                     r.text = token_str;
                     r.baseline = seg.baseline;
                     r.styled = true;
-                    r.italic = Some(is_var);
+                    let is_single_var = is_var && (j - idx == 1);
+                    r.italic = Some(is_single_var);
                     r.family = Some("Times New Roman".to_owned());
                     out.push(r);
 
