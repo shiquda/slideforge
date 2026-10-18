@@ -121,6 +121,24 @@ fn command_symbol(name: &str) -> Option<&'static str> {
         "Re" => "ℜ",
         "Im" => "ℑ",
         "aleph" => "ℵ",
+        // standard math operators and functions (upright)
+        "sin" => "sin",
+        "cos" => "cos",
+        "tan" => "tan",
+        "log" => "log",
+        "ln" => "ln",
+        "exp" => "exp",
+        "max" => "max",
+        "min" => "min",
+        "argmax" => "argmax",
+        "argmin" => "argmin",
+        "arg" => "arg",
+        "det" => "det",
+        "dim" => "dim",
+        "ker" => "ker",
+        "lim" => "lim",
+        "sup" => "sup",
+        "inf" => "inf",
         _ => return None,
     })
 }
@@ -211,6 +229,13 @@ pub fn latex_to_segments(src: &str) -> Vec<Segment> {
                             for ch in group.chars() {
                                 cur.push(mathbb(ch));
                             }
+                            j = k;
+                        }
+                    } else if matches!(name.as_str(), "mathrm" | "text" | "operatorname") {
+                        if j < chars.len() && chars[j] == '{' {
+                            let mut k = j;
+                            let group = read_script(&chars, &mut k);
+                            cur.push_str(&group);
                             j = k;
                         }
                     } else if let Some(symbol) = command_symbol(&name) {

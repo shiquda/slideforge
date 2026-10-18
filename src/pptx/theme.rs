@@ -324,6 +324,7 @@ pub fn safe_ea_typeface(name: &str) -> &str {
         "思源黑体" | "Source Han Sans" | "Source Han Sans SC" | "Noto Sans SC" => "Microsoft YaHei",
         "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" => "SimSun",
         "宋体" | "SimSun" | "中易宋体" | "Songti SC" => "SimSun",
+        "Cambria Math" | "Cambria" | "Times New Roman" => "SimSun",
         "" => "Microsoft YaHei",
         other => other,
     }
@@ -335,6 +336,8 @@ pub fn safe_latin_typeface(name: &str) -> &str {
     match trimmed {
         "MiSans" | "misans" | "Liter" | "liter" => "Arial",
         "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" | "宋体" | "SimSun" | "Songti SC" => "Georgia",
+        "Cambria Math" => "Times New Roman",
+        "Times New Roman" => "Times New Roman",
         "QuattrocentoSans" => "Arial",
         "SortsMillGoudy" => "Georgia",
         "" => "Arial",

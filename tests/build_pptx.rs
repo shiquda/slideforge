@@ -410,5 +410,7 @@ elements:
     assert!(slide.contains("baseline=\"-25000\""), "subscript baseline shift missing");
     assert!(slide.contains("i=\"1\""), "math variable italic missing");
     assert!(slide.contains("≥"), "ge symbol missing");
+    assert!(slide.contains("typeface=\"Times New Roman\""), "Times New Roman font missing for math formula");
+    assert!(slide.contains("<a:cs typeface=\"Times New Roman\"/>"), "Complex script math font missing");
     let _ = fs::remove_file(&path);
 }

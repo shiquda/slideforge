@@ -1222,6 +1222,15 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
     merged
 }
 
+fn is_math_variable_char(c: char) -> bool {
+    // Latin alphabetic letters (A-Z, a-z)
+    c.is_ascii_alphabetic()
+        // Lowercase Greek letters commonly used as variables
+        || ('\u{03B1}'..='\u{03C9}').contains(&c)
+        // Additional Greek / math symbols like \vartheta, \varphi, \varpi, \ell
+        || matches!(c, 'ϑ' | 'ϕ' | 'ϖ' | 'ϰ' | 'ϱ' | 'ϵ' | 'ℓ')
+}
+
 /// Expand inline `\(...\)` LaTeX formulas in rich runs into styled text runs
 /// (Unicode symbols + baseline-shifted scripts) via [`super::math`]. Runs
 /// without a formula pass through unchanged.
@@ -1256,22 +1265,39 @@ fn expand_math_runs(runs: &[RichRun]) -> Vec<RichRun> {
                 break;
             };
             for seg in super::math::latex_to_segments(&after[..end]) {
-                let mut r = run.clone();
-                r.text = seg.text;
-                r.baseline = seg.baseline;
-                r.styled = run.styled || seg.baseline.is_some();
-                let is_variable = r.text.len() == 1
-                    && r.text
-                        .chars()
-                        .next()
-                        .map_or(false, |c| c.is_ascii_alphabetic());
-                if is_variable {
-                    r.italic = Some(true);
-                } else if r.text.chars().any(|c| !c.is_ascii_alphabetic()) {
-                    r.italic = Some(false);
+                let chars: Vec<char> = seg.text.chars().collect();
+                let mut idx = 0;
+                while idx < chars.len() {
+                    let c = chars[idx];
+                    let is_space = c.is_whitespace();
+                    let is_var = !is_space && is_math_variable_char(c);
+
+                    let mut j = idx + 1;
+                    if is_var {
+                        while j < chars.len() && !chars[j].is_whitespace() && is_math_variable_char(chars[j]) {
+                            j += 1;
+                        }
+                    } else if is_space {
+                        while j < chars.len() && chars[j].is_whitespace() {
+                            j += 1;
+                        }
+                    } else {
+                        while j < chars.len() && !chars[j].is_whitespace() && !is_math_variable_char(chars[j]) {
+                            j += 1;
+                        }
+                    }
+
+                    let token_str: String = chars[idx..j].iter().collect();
+                    let mut r = run.clone();
+                    r.text = token_str;
+                    r.baseline = seg.baseline;
+                    r.styled = true;
+                    r.italic = Some(is_var);
+                    r.family = Some("Times New Roman".to_owned());
+                    out.push(r);
+
+                    idx = j;
                 }
-                r.family = Some("Arial".to_owned());
-                out.push(r);
             }
             rest = &after[end + 2..];
         }
@@ -1493,12 +1519,14 @@ fn emit_run_styled(
             let ea = super::theme::safe_ea_typeface(name);
             xml.leaf("a:latin", &[("typeface", lat)]);
             xml.leaf("a:ea", &[("typeface", ea)]);
+            xml.leaf("a:cs", &[("typeface", lat)]);
         }
         FontFamily::Bilingual { latin, ea } => {
             let lat = super::theme::safe_latin_typeface(latin);
             let ea_safe = super::theme::safe_ea_typeface(ea);
             xml.leaf("a:latin", &[("typeface", lat)]);
             xml.leaf("a:ea", &[("typeface", ea_safe)]);
+            xml.leaf("a:cs", &[("typeface", lat)]);
         }
     }
     xml.end("a:rPr");
