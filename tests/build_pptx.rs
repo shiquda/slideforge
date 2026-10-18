@@ -424,7 +424,7 @@ elements:
 }
 
 #[test]
-fn math_formula_default_upright_and_subscripts() {
+fn math_formula_variable_italics_and_subscripts() {
     let deck = r#"
 version: v2
 title: Math Test
@@ -456,17 +456,18 @@ elements:
 
     let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
     assert!(slide.contains("baseline=\"-25000\""), "subscript baseline shift missing");
+    assert!(slide.contains("i=\"1\""), "math variable italic missing");
     assert!(slide.contains("≥"), "ge symbol missing");
-    // Formula defaults to upright (no i="1") unless explicitly emphasized
-    assert!(!slide.contains("i=\"1\""), "math formula must not be italic by default");
+    assert!(slide.contains("typeface=\"Times New Roman\""), "Times New Roman font missing for math formula");
+    assert!(slide.contains("<a:cs typeface=\"Times New Roman\"/>"), "Complex script math font missing");
     let _ = fs::remove_file(&path);
 }
 
 #[test]
-fn math_formula_explicit_italic_respected() {
+fn math_formula_operator_upright_and_variable_italic() {
     let deck = r#"
 version: v2
-title: Math Italic Test
+title: Math Operator Test
 size: [960, 540]
 pages: [pages/p.page]
 "#;
@@ -477,33 +478,31 @@ elements:
     bounds: [50, 50, 400, 100]
     content:
       text: |
-        <p>强调 <i>\(x + y\)</i> 和普通 \(z\)</p>
+        <p>公式 \(\sin(x) + \max(y, z)\)</p>
 "#;
-    let dir = std::env::temp_dir().join(format!("slideforge-math-it-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("slideforge-math-op-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("pages")).unwrap();
     fs::write(dir.join("deck.pptd"), deck).unwrap();
     fs::write(dir.join("pages/p.page"), page).unwrap();
 
     let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
-    let path = out_path("math_it_test");
+    let path = out_path("math_op_test");
     let _ = fs::remove_file(&path);
 
     PptxWriter::new(&project)
         .build(&path)
-        .expect("math italic deck must build");
+        .expect("math operator deck must build");
 
     let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
-    // Explicitly italicized formula must have i="1"
-    let x_idx = slide.find("<a:t>x + y</a:t>").unwrap();
-    let x_r_start = slide[..x_idx].rfind("<a:r>").unwrap();
-    let x_run = &slide[x_r_start..x_idx];
-    assert!(x_run.contains("i=\"1\""), "explicitly italicized formula must have i=\"1\"");
-    // Unemphasized formula z must NOT have i="1"
-    let z_idx = slide.find("<a:t>z</a:t>").unwrap();
-    let z_r_start = slide[..z_idx].rfind("<a:r>").unwrap();
-    let z_run = &slide[z_r_start..z_idx];
-    assert!(!z_run.contains("i=\"1\""), "normal formula z must be upright (no i=\"1\")");
+    // Variables x, y, z must have italic i="1"
+    assert!(slide.contains("<a:t>x</a:t>"), "variable x missing");
+    assert!(slide.contains("<a:t>sin</a:t>"), "operator sin missing");
+    // Ensure sin run does not have i="1"
+    let sin_idx = slide.find("<a:t>sin</a:t>").unwrap();
+    let sin_r_start = slide[..sin_idx].rfind("<a:r>").unwrap();
+    let sin_run = &slide[sin_r_start..sin_idx];
+    assert!(!sin_run.contains("i=\"1\""), "operator sin must be upright (no i=\"1\")");
     let _ = fs::remove_file(&path);
 }
 

@@ -1244,12 +1244,22 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
     merged
 }
 
+fn is_math_variable_char(c: char) -> bool {
+    // Latin alphabetic letters (A-Z, a-z)
+    c.is_ascii_alphabetic()
+        // Lowercase Greek letters commonly used as variables
+        || ('\u{03B1}'..='\u{03C9}').contains(&c)
+        // Additional Greek / math symbols like \vartheta, \varphi, \varpi, \ell
+        || matches!(c, 'ϑ' | 'ϕ' | 'ϖ' | 'ϰ' | 'ϱ' | 'ϵ' | 'ℓ')
+}
+
 /// Expand inline `\(...\)` LaTeX formulas in rich runs into styled text runs
 /// (Unicode symbols + baseline-shifted scripts) via [`super::math`]. Runs
 /// without a formula pass through unchanged.
 ///
-/// Formulas default to the slide's normal font family and upright (non-italic)
-/// text unless explicitly styled for emphasis.
+/// Formulas are rendered in Times New Roman per standard academic LaTeX typography:
+/// - Single-letter variables and Greek letters are italic
+/// - Multi-letter functions (sin, cos, max) and operators/delimiters are upright
 fn expand_math_runs(runs: &[RichRun]) -> Vec<RichRun> {
     let mut out: Vec<RichRun> = Vec::new();
     for run in runs {
@@ -1281,15 +1291,40 @@ fn expand_math_runs(runs: &[RichRun]) -> Vec<RichRun> {
                 break;
             };
             for seg in super::math::latex_to_segments(&after[..end]) {
-                let mut r = run.clone();
-                r.text = seg.text;
-                r.baseline = seg.baseline;
-                r.styled = true;
-                // Formulas default to upright (non-italic) unless explicitly styled italic
-                r.italic = run.italic.or(Some(false));
-                // Formulas inherit the slide's normal font family
-                r.family = run.family.clone();
-                out.push(r);
+                let chars: Vec<char> = seg.text.chars().collect();
+                let mut idx = 0;
+                while idx < chars.len() {
+                    let c = chars[idx];
+                    let is_space = c.is_whitespace();
+                    let is_var = !is_space && is_math_variable_char(c);
+
+                    let mut j = idx + 1;
+                    if is_var {
+                        while j < chars.len() && !chars[j].is_whitespace() && is_math_variable_char(chars[j]) {
+                            j += 1;
+                        }
+                    } else if is_space {
+                        while j < chars.len() && chars[j].is_whitespace() {
+                            j += 1;
+                        }
+                    } else {
+                        while j < chars.len() && !chars[j].is_whitespace() && !is_math_variable_char(chars[j]) {
+                            j += 1;
+                        }
+                    }
+
+                    let token_str: String = chars[idx..j].iter().collect();
+                    let mut r = run.clone();
+                    r.text = token_str;
+                    r.baseline = seg.baseline;
+                    r.styled = true;
+                    let is_single_var = is_var && (j - idx == 1);
+                    r.italic = Some(is_single_var);
+                    r.family = Some("Times New Roman".to_owned());
+                    out.push(r);
+
+                    idx = j;
+                }
             }
             rest = &after[end + 2..];
         }
