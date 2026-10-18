@@ -11,16 +11,16 @@
 //! `hMerge` / `vMerge` placeholder cells while the origin cell carries
 //! `gridSpan` / `rowSpan`.
 
+use crate::pptd::Theme;
 use crate::pptd::elements::{Cell, Table};
 use crate::pptd::shared::{
     Alignment, Border, BorderSpec, Color, Fill, FontFamily, HorizontalAlign, LineStyle,
     VerticalAlign,
 };
 use crate::pptd::theme::{CellStyle, TableStyleConfig, TableStyleRef, TextStyleConfig};
-use crate::pptd::Theme;
 use crate::{Error, Result};
 
-use super::render::{emu, fill_xml, render_rich_body, EffTextStyle};
+use super::render::{EffTextStyle, emu, fill_xml, render_rich_body};
 use super::xml::Xml;
 
 /// Accumulated cell style while walking the inheritance chain.
@@ -209,12 +209,20 @@ fn border_sides(spec: Option<&BorderSpec>) -> [Option<Border>; 4] {
                 color: Some(Color("#000000".to_owned())),
                 gradient: None,
             };
-            [Some(default.clone()), Some(default.clone()), Some(default.clone()), Some(default)]
+            [
+                Some(default.clone()),
+                Some(default.clone()),
+                Some(default.clone()),
+                Some(default),
+            ]
         }
         Some(BorderSpec::Clear) => [None, None, None, None],
-        Some(BorderSpec::Uniform(b)) => {
-            [Some(b.clone()), Some(b.clone()), Some(b.clone()), Some(b.clone())]
-        }
+        Some(BorderSpec::Uniform(b)) => [
+            Some(b.clone()),
+            Some(b.clone()),
+            Some(b.clone()),
+            Some(b.clone()),
+        ],
         Some(BorderSpec::VerticalHorizontal([tb, lr])) => {
             [lr.clone(), lr.clone(), tb.clone(), tb.clone()]
         }
@@ -254,7 +262,14 @@ fn cell_border_xml(
             None,
         )?;
     } else if let Some(color) = &border.color {
-        fill_xml(xml, theme, &Fill::Solid { color: color.clone() }, None)?;
+        fill_xml(
+            xml,
+            theme,
+            &Fill::Solid {
+                color: color.clone(),
+            },
+            None,
+        )?;
     }
     let dash = border.style.map(|style| match style {
         LineStyle::Solid => "solid",
@@ -291,7 +306,11 @@ enum Slot<'a> {
 }
 
 /// Render a `table` element as a native `<a:tbl>` graphic frame.
-pub(crate) fn render_table(xml: &mut Xml, ctx: &mut super::render::RenderCtx<'_>, table: &Table) -> Result<()> {
+pub(crate) fn render_table(
+    xml: &mut Xml,
+    ctx: &mut super::render::RenderCtx<'_>,
+    table: &Table,
+) -> Result<()> {
     let theme = ctx.theme;
     let cfg: Option<TableStyleConfig> = match &table.style {
         Some(TableStyleRef::Ref(key)) => theme
@@ -425,9 +444,10 @@ pub(crate) fn render_table(xml: &mut Xml, ctx: &mut super::render::RenderCtx<'_>
 
 /// Build the box-level text style for the cell's `a:txBody`.
 fn cell_eff_style(acc: &CellAcc) -> EffTextStyle {
-    let align = acc
-        .align
-        .or(Some(Alignment::from((HorizontalAlign::Center, VerticalAlign::Middle))));
+    let align = acc.align.or(Some(Alignment::from((
+        HorizontalAlign::Center,
+        VerticalAlign::Middle,
+    ))));
     EffTextStyle {
         color: acc.color.clone(),
         font_size: acc.font_size,

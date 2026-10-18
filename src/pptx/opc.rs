@@ -30,6 +30,8 @@ pub mod rel_kind {
         "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
     pub const SLIDE: &str =
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
+    pub const NOTES_SLIDE: &str =
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide";
     pub const SLIDE_LAYOUT: &str =
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout";
     pub const SLIDE_MASTER: &str =

@@ -599,6 +599,7 @@ pub fn render_layout_placeholder(
 
 /// Effective text style after the inheritance chain
 /// (content fields > `content.style` → theme.textStyles > defaults).
+#[derive(Default)]
 pub struct EffTextStyle {
     pub color: Option<Color>,
     pub font_size: Option<f64>,
@@ -1033,16 +1034,7 @@ fn parse_rich(text: &str) -> Vec<RichPara> {
             line_height: None,
             line_height_px: None,
             margin_top_px: None,
-            runs: vec![RichRun {
-                text: unescape_xml(line),
-                size: None,
-                color: None,
-                family: None,
-                bold: None,
-                italic: None,
-                styled: false,
-                baseline: None,
-            }],
+            runs: parse_runs(line),
         }
     }
 
@@ -1120,6 +1112,8 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
         family: Option<String>,
         bold: Option<bool>,
         italic: Option<bool>,
+        underline: Option<bool>,
+        strike: Option<bool>,
         styled: bool,
     }
 
@@ -1134,6 +1128,8 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
             family: f.family.clone(),
             bold: f.bold,
             italic: f.italic,
+            underline: f.underline,
+            strike: f.strike,
             styled: f.styled,
             baseline: None,
         });
@@ -1164,11 +1160,21 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
                 flags.bold = css_value(&pairs, "font-weight")
                     .map(|w| matches!(w, "bold" | "bolder" | "600" | "700" | "800" | "900"));
                 flags.italic = css_value(&pairs, "font-style").map(|s| s != "normal");
+                if let Some(dec) = css_value(&pairs, "text-decoration") {
+                    if dec.contains("underline") {
+                        flags.underline = Some(true);
+                    }
+                    if dec.contains("line-through") {
+                        flags.strike = Some(true);
+                    }
+                }
                 flags.styled = flags.size.is_some()
                     || flags.color.is_some()
                     || flags.family.is_some()
                     || flags.bold.is_some()
-                    || flags.italic.is_some();
+                    || flags.italic.is_some()
+                    || flags.underline.is_some()
+                    || flags.strike.is_some();
             } else if name == "/span" {
                 flush(&mut out, &mut buf, &flags);
                 flags = Flags::default();
@@ -1186,6 +1192,20 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
             } else if name == "/em" || name == "/i" {
                 flush(&mut out, &mut buf, &flags);
                 flags.italic = None;
+            } else if name == "u" {
+                flush(&mut out, &mut buf, &flags);
+                flags.underline = Some(true);
+                flags.styled = true;
+            } else if name == "/u" {
+                flush(&mut out, &mut buf, &flags);
+                flags.underline = None;
+            } else if name == "s" || name == "strike" || name == "del" {
+                flush(&mut out, &mut buf, &flags);
+                flags.strike = Some(true);
+                flags.styled = true;
+            } else if name == "/s" || name == "/strike" || name == "/del" {
+                flush(&mut out, &mut buf, &flags);
+                flags.strike = None;
             } else if name == "span" {
                 flush(&mut out, &mut buf, &flags);
                 flags = Flags::default();
@@ -1211,7 +1231,9 @@ fn parse_runs(inner: &str) -> Vec<RichRun> {
                 && last.color == run.color
                 && last.family == run.family
                 && last.bold == run.bold
-                && last.italic == run.italic;
+                && last.italic == run.italic
+                && last.underline == run.underline
+                && last.strike == run.strike;
             if same && !run.styled {
                 last.text.push_str(&run.text);
                 continue;
@@ -1414,6 +1436,8 @@ struct RichRun {
     /// `None` inherits the box/paragraph style; `Some` is an explicit reset.
     bold: Option<bool>,
     italic: Option<bool>,
+    underline: Option<bool>,
+    strike: Option<bool>,
     styled: bool,
     /// OOXML `a:rPr@baseline` shift (1000ths of a percent) for math scripts.
     baseline: Option<i32>,
@@ -1461,6 +1485,8 @@ fn emit_run_styled(
     let italic = run
         .and_then(|r| r.italic)
         .unwrap_or(style.italic == Some(true));
+    let underline = run.and_then(|r| r.underline).unwrap_or(false);
+    let strike = run.and_then(|r| r.strike).unwrap_or(false);
 
     let sz = (font_size * 100.0).round().to_string();
     let mut attrs: Vec<(&str, &str)> = vec![("lang", "en-US"), ("sz", &sz), ("noProof", "1")];
@@ -1470,11 +1496,16 @@ fn emit_run_styled(
     if italic {
         attrs.push(("i", "1"));
     }
+    if underline {
+        attrs.push(("u", "sng"));
+    }
+    if strike {
+        attrs.push(("strike", "sngStrike"));
+    }
     let baseline_attr = baseline.map(|b| b.to_string());
     if let Some(bl) = &baseline_attr {
         attrs.push(("baseline", bl));
     }
-
 
     xml.start("a:r", &[]);
     xml.start("a:rPr", &attrs);
@@ -1654,11 +1685,7 @@ fn line_stroke_xml(
 
     xml.start(
         "a:ln",
-        &[
-            ("w", &width_attr),
-            ("cmpd", "sng"),
-            ("cap", "rnd"),
-        ],
+        &[("w", &width_attr), ("cmpd", "sng"), ("cap", "rnd")],
     );
 
     if let Some(border) = border {
@@ -1763,8 +1790,8 @@ fn render_line(xml: &mut Xml, ctx: &mut RenderCtx<'_>, line: &Line) -> Result<()
         let actual_w = (span_x * scale_x).max(1.0);
         let actual_h = (span_y * scale_y).max(1.0);
 
-        let mut flip_h = line.common.flip.map_or(false, |f| f.0);
-        let mut flip_v = line.common.flip.map_or(false, |f| f.1);
+        let mut flip_h = line.common.flip.is_some_and(|f| f.0);
+        let mut flip_v = line.common.flip.is_some_and(|f| f.1);
         if p1.0 < p0.0 {
             flip_h = !flip_h;
         }
@@ -1813,8 +1840,18 @@ fn render_line(xml: &mut Xml, ctx: &mut RenderCtx<'_>, line: &Line) -> Result<()
             line.common.flip,
         );
 
-        let path_w = (line.view_box.0.round() as i64).to_string();
-        let path_h = (line.view_box.1.round() as i64).to_string();
+        let pw = if line.view_box.0 > 0.0 {
+            line.view_box.0
+        } else {
+            line.common.bounds.width
+        };
+        let ph = if line.view_box.1 > 0.0 {
+            line.view_box.1
+        } else {
+            line.common.bounds.height
+        };
+        let path_w = (pw.round() as i64).to_string();
+        let path_h = (ph.round() as i64).to_string();
         xml.start("a:custGeom", &[]);
         xml.leaf("a:avLst", &[]);
         xml.leaf("a:gdLst", &[]);
@@ -2271,5 +2308,53 @@ mod tests {
         border_xml(&mut xml, None, &b).unwrap();
         let out = xml.into_string();
         assert!(out.contains("scaled=\"1\""), "{out}");
+    }
+    #[test]
+    fn parse_runs_handles_underline_and_strikethrough_without_panic() {
+        let text = "<p>Normal <u>underlined</u> and <s>struck</s> and <strong>bold</strong></p>";
+        let paras = parse_rich(text);
+        assert_eq!(paras.len(), 1);
+        let runs = &paras[0].runs;
+        assert!(
+            runs.iter()
+                .any(|r| r.text == "underlined" && r.underline == Some(true))
+        );
+        assert!(
+            runs.iter()
+                .any(|r| r.text == "struck" && r.strike == Some(true))
+        );
+        assert!(
+            runs.iter()
+                .any(|r| r.text == "bold" && r.bold == Some(true))
+        );
+    }
+
+    #[test]
+    fn parse_runs_handles_unknown_tags_without_slice_panic() {
+        let text = "<p>Prefix <ul><li>item</li></ul> <a>link</a> suffix</p>";
+        let paras = parse_rich(text);
+        assert_eq!(paras.len(), 1);
+        // Must not panic on slice index and must retain text
+        let combined: String = paras[0].runs.iter().map(|r| r.text.as_str()).collect();
+        assert!(combined.contains("Prefix"));
+        assert!(combined.contains("suffix"));
+    }
+
+    #[test]
+    fn render_rich_body_emits_underline_and_strike_attributes() {
+        let style = EffTextStyle::default();
+        let mut xml = Xml::new();
+        render_rich_body(
+            &mut xml,
+            None,
+            &style,
+            "<p><u>underline</u> <s>strike</s></p>",
+            "tl",
+            false,
+        )
+        .unwrap();
+        let out = xml.into_string();
+        assert!(out.contains("u=\"sng\""), "{out}");
+        assert!(out.contains("strike=\"sngStrike\""), "{out}");
     }
 }

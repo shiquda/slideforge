@@ -223,7 +223,10 @@ elements:
 /// text, theme-driven header styling and `colSpan` merges all survive.
 #[test]
 fn table_deck_produces_native_tbl() {
-    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tables/tables.pptd");
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/tables/tables.pptd"
+    );
     let project = pptd::load_project(Path::new(fixture)).unwrap();
     let path = out_path("table");
     let _ = fs::remove_file(&path);
@@ -236,13 +239,22 @@ fn table_deck_produces_native_tbl() {
     assert!(slide.contains("<a:tbl>"), "must contain a native table");
     assert_eq!(slide.matches("<a:gridCol").count(), 3, "three grid columns");
     assert_eq!(slide.matches("<a:tr ").count(), 3, "three rows");
-    assert!(slide.contains("gridSpan=\"2\""), "colSpan=2 must map to gridSpan");
-    assert!(slide.contains("hMerge=\"1\""), "covered cell must be hMerge");
+    assert!(
+        slide.contains("gridSpan=\"2\""),
+        "colSpan=2 must map to gridSpan"
+    );
+    assert!(
+        slide.contains("hMerge=\"1\""),
+        "covered cell must be hMerge"
+    );
     for text in ["名称", "合并单元格", "粗体"] {
         assert!(slide.contains(text), "cell text `{text}` must survive");
     }
     // Header row resolves `firstRowStyle` through the theme `$` reference.
-    assert!(slide.contains("2F5D50"), "header fill must resolve $primary");
+    assert!(
+        slide.contains("2F5D50"),
+        "header fill must resolve $primary"
+    );
     assert!(slide.contains("b=\"1\""), "header runs must be bold");
     let _ = fs::remove_file(&path);
 }
@@ -280,10 +292,22 @@ elements:
         .expect("line deck must build");
 
     let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
-    assert!(slide.contains("<p:cxnSp>"), "straight 2pt line should be cxnSp");
-    assert!(slide.contains("prst=\"line\""), "straight line must have prst=line");
-    assert!(slide.contains("<a:headEnd type=\"triangle\""), "arrow head missing");
-    assert!(slide.contains("<a:tailEnd type=\"stealth\""), "stealth tail missing");
+    assert!(
+        slide.contains("<p:cxnSp>"),
+        "straight 2pt line should be cxnSp"
+    );
+    assert!(
+        slide.contains("prst=\"line\""),
+        "straight line must have prst=line"
+    );
+    assert!(
+        slide.contains("<a:headEnd type=\"triangle\""),
+        "arrow head missing"
+    );
+    assert!(
+        slide.contains("<a:tailEnd type=\"stealth\""),
+        "stealth tail missing"
+    );
     let _ = fs::remove_file(&path);
 }
 
@@ -323,12 +347,24 @@ elements:
         .expect("font test deck must build");
 
     let theme = read_zip_part(&path, "ppt/theme/theme1.xml");
-    assert!(theme.contains("Microsoft YaHei"), "theme ea font must be Microsoft YaHei");
-    assert!(!theme.contains("typeface=\"MiSans\""), "theme must not have MiSans directly");
+    assert!(
+        theme.contains("Microsoft YaHei"),
+        "theme ea font must be Microsoft YaHei"
+    );
+    assert!(
+        !theme.contains("typeface=\"MiSans\""),
+        "theme must not have MiSans directly"
+    );
 
     let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
-    assert!(slide.contains("typeface=\"Microsoft YaHei\""), "slide ea font must be Microsoft YaHei");
-    assert!(!slide.contains("typeface=\"MiSans\""), "slide must not have MiSans directly");
+    assert!(
+        slide.contains("typeface=\"Microsoft YaHei\""),
+        "slide ea font must be Microsoft YaHei"
+    );
+    assert!(
+        !slide.contains("typeface=\"MiSans\""),
+        "slide must not have MiSans directly"
+    );
     let _ = fs::remove_file(&path);
 }
 
@@ -368,10 +404,22 @@ elements:
         .expect("serif font test deck must build");
 
     let slide = read_zip_part(&path, "ppt/slides/slide1.xml");
-    assert!(slide.contains("typeface=\"SimSun\""), "slide ea font must be SimSun");
-    assert!(slide.contains("typeface=\"Georgia\""), "slide latin font must be Georgia");
-    assert!(!slide.contains("typeface=\"思源宋体\""), "slide must not have 思源宋体 as latin");
-    assert!(!slide.contains("typeface=\"Source Han Serif SC\""), "slide must not have uninstalled Source Han Serif SC directly");
+    assert!(
+        slide.contains("typeface=\"SimSun\""),
+        "slide ea font must be SimSun"
+    );
+    assert!(
+        slide.contains("typeface=\"Georgia\""),
+        "slide latin font must be Georgia"
+    );
+    assert!(
+        !slide.contains("typeface=\"思源宋体\""),
+        "slide must not have 思源宋体 as latin"
+    );
+    assert!(
+        !slide.contains("typeface=\"Source Han Serif SC\""),
+        "slide must not have uninstalled Source Han Serif SC directly"
+    );
     let _ = fs::remove_file(&path);
 }
 
@@ -457,4 +505,64 @@ elements:
     let z_run = &slide[z_r_start..z_idx];
     assert!(!z_run.contains("i=\"1\""), "normal formula z must be upright (no i=\"1\")");
     let _ = fs::remove_file(&path);
+}
+
+#[test]
+fn speaker_notes_produce_notes_slide_and_rels() {
+    let deck = "version: v2\ntitle: Notes Test\nsize: [960, 540]\npages:\n  - pages/p.page\n";
+    let page = r#"
+notes: |
+  这是第一行演讲者备注。
+  这是第二行演讲者备注。
+elements:
+  - elementId: t1
+    elementType: text
+    bounds: [50, 50, 400, 100]
+    content:
+      text: <p>Slide with notes</p>
+"#;
+    let dir = std::env::temp_dir().join(format!("slideforge-notes-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("pages")).unwrap();
+    fs::write(dir.join("deck.pptd"), deck).unwrap();
+    fs::write(dir.join("pages/p.page"), page).unwrap();
+
+    let project = pptd::load_project(&dir.join("deck.pptd")).unwrap();
+    let path = out_path("notes_test");
+    let _ = fs::remove_file(&path);
+
+    PptxWriter::new(&project)
+        .build(&path)
+        .expect("notes deck must build");
+
+    let notes_xml = read_zip_part(&path, "ppt/notesSlides/notesSlide1.xml");
+    assert!(
+        notes_xml.contains("这是第一行演讲者备注。"),
+        "first line missing from notes: {notes_xml}"
+    );
+    assert!(
+        notes_xml.contains("这是第二行演讲者备注。"),
+        "second line missing from notes: {notes_xml}"
+    );
+
+    let slide_rels = read_zip_part(&path, "ppt/slides/_rels/slide1.xml.rels");
+    assert!(
+        slide_rels.contains("notesSlide1.xml"),
+        "notesSlide rel missing from slide rels: {slide_rels}"
+    );
+
+    let notes_rels = read_zip_part(&path, "ppt/notesSlides/_rels/notesSlide1.xml.rels");
+    assert!(
+        notes_rels.contains("slide1.xml"),
+        "slide rel missing from notes rels: {notes_rels}"
+    );
+
+    let content_types = read_zip_part(&path, "[Content_Types].xml");
+    assert!(
+        content_types.contains("notesSlide+xml"),
+        "notesSlide content type missing: {content_types}"
+    );
+
+    let _ = fs::remove_file(&path);
+    let _ = fs::remove_dir_all(&dir);
 }

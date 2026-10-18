@@ -2641,7 +2641,11 @@ fn pt(el: &XmlEl, guides: &GeomGuides) -> std::result::Result<(f64, f64), String
 
 /// One `a:lnL/lnR/lnT/lnB` cell border. Absent from `tcPr` → `None` (side not
 /// specified); present with `noFill` → `Some(None)` (explicitly cleared).
-fn cell_side_border(tc_pr: Option<&XmlEl>, tag: &str, slots: &SlotColors) -> Option<Option<Border>> {
+fn cell_side_border(
+    tc_pr: Option<&XmlEl>,
+    tag: &str,
+    slots: &SlotColors,
+) -> Option<Option<Border>> {
     let ln = tc_pr.and_then(|p| first(p, tag))?;
     if first(ln, "noFill").is_some() {
         return Some(None);

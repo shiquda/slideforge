@@ -298,6 +298,7 @@ pub struct Shape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArrowType {
+    #[serde(alias = "triangle")]
     Arrow,
     Stealth,
     Diamond,
@@ -323,6 +324,7 @@ pub struct Line {
     #[serde(flatten)]
     pub common: ElementCommon,
     /// Path coordinate system `[w, h]`; points live inside it.
+    #[serde(default)]
     pub view_box: (f64, f64),
     /// Bezier path points, e.g. `"0,0 0.2,0 0.8,1 1,1"`.
     pub points: String,

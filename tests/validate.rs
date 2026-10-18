@@ -23,12 +23,15 @@ fn tmp_deck(tag: &str, deck_yaml: &str, pages: &[(&str, &str)]) -> String {
 const MINIMAL_DECK: &str = "version: v2\nsize: [960, 540]\npages:\n  - pages/p.page\n";
 
 #[test]
-fn valid_fixture_has_no_issues() {
+fn demo_fixture_reports_unsupported_chart() {
     let project = pptd::load_project(Path::new(FIXTURE)).unwrap();
-    assert!(
-        validate_project(&project).is_empty(),
-        "demo fixture should be clean"
+    let issues = validate_project(&project);
+    assert_eq!(
+        issues.len(),
+        1,
+        "demo fixture contains 1 unsupported chart: {issues:?}"
     );
+    assert!(issues[0].message.contains("chart `trend` is not supported"));
 }
 
 #[test]
@@ -194,5 +197,140 @@ animations:
             .iter()
             .any(|d| d.message.contains("references unknown elementId")),
         "expected an animation-target finding, got {issues:?}"
+    );
+}
+
+#[test]
+fn undefined_theme_color_is_reported() {
+    let page = r#"
+elements:
+  - elementId: t
+    elementType: text
+    bounds: [0, 0, 100, 50]
+    content:
+      text: hi
+      color: "$nonexistentColor"
+"#;
+    let entry = tmp_deck("undef-color", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        issues.iter().any(|d| d
+            .message
+            .contains("references undefined color `$nonexistentColor`")),
+        "expected undefined color diagnostic, got {issues:?}"
+    );
+}
+
+#[test]
+fn missing_image_file_is_reported() {
+    let page = r#"
+elements:
+  - elementId: img1
+    elementType: image
+    bounds: [0, 0, 100, 50]
+    src: "assets/nonexistent_image.png"
+"#;
+    let entry = tmp_deck("missing-img", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        issues.iter().any(|d| d
+            .message
+            .contains("references missing file `assets/nonexistent_image.png`")),
+        "expected missing image file diagnostic, got {issues:?}"
+    );
+}
+
+#[test]
+fn invalid_shape_name_is_reported() {
+    let page = r#"
+elements:
+  - elementId: s1
+    elementType: shape
+    bounds: [0, 0, 100, 50]
+    shapeName: "circle"
+"#;
+    let entry = tmp_deck("bad-shape", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        issues.iter().any(|d| d
+            .message
+            .contains("has unknown shapeName `circle` (did you mean `ellipse`?)")),
+        "expected invalid shape diagnostic with suggestion, got {issues:?}"
+    );
+}
+
+#[test]
+fn unsupported_rich_text_tags_are_reported() {
+    let page = r#"
+elements:
+  - elementId: t1
+    elementType: text
+    bounds: [0, 0, 100, 50]
+    content:
+      text: "<p><ul><li>leaked list item</li></ul></p>"
+"#;
+    let entry = tmp_deck("unsupported-tag", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        issues
+            .iter()
+            .any(|d| d.message.contains("contains unsupported tag `<ul>`")),
+        "expected unsupported tag diagnostic, got {issues:?}"
+    );
+}
+
+#[test]
+fn unknown_misspelled_fields_are_reported() {
+    let page = r##"
+elements:
+  - elementId: t1
+    elementType: text
+    bounds: [0, 0, 100, 50]
+    colro: "#ff0000"
+    content:
+      text: "hello"
+      font_sizee: 24
+"##;
+    let entry = tmp_deck("unknown-field", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        issues
+            .iter()
+            .any(|d| d.message.contains("element `t1` has unknown field `colro`")),
+        "expected unknown field colro diagnostic, got {issues:?}"
+    );
+    assert!(
+        issues.iter().any(|d| d
+            .message
+            .contains("text `t1` content has unknown field `font_sizee`")),
+        "expected unknown field font_sizee diagnostic, got {issues:?}"
+    );
+}
+
+#[test]
+fn potential_text_overflow_is_reported() {
+    let page = r#"
+elements:
+  - elementId: t1
+    elementType: text
+    bounds: [0, 0, 100, 20]
+    content:
+      fontSize: 24
+      text: |
+        这是一段非常非常长的文字内容，在一个只有20pt高度的极小容器框里面排版，肯定会造成严重的上下文字视觉溢出，系统应当发出明确的文本溢出警告。
+"#;
+    let entry = tmp_deck("overflow", MINIMAL_DECK, &[("p.page", page)]);
+    let project = pptd::load_project(Path::new(&entry)).unwrap();
+    let issues = validate_project(&project);
+    assert!(
+        issues
+            .iter()
+            .any(|d| d.message.contains("potential text overflow in `t1`")),
+        "expected text overflow warning, got {issues:?}"
     );
 }

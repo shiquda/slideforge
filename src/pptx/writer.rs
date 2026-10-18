@@ -289,6 +289,31 @@ impl<'a> PptxWriter<'a> {
                     rel_target(&part.package_path),
                 ));
             }
+
+            let has_notes = page.notes.as_deref().is_some_and(|n| !n.trim().is_empty());
+            if has_notes {
+                let notes_text = page.notes.as_deref().unwrap_or("");
+                entries.push(PackageEntry::typed(
+                    format!("ppt/notesSlides/notesSlide{index}.xml"),
+                    ContentType::NotesSlide,
+                    notes_slide_xml(notes_text),
+                ));
+                entries.push(PackageEntry::opaque(
+                    format!("ppt/notesSlides/_rels/notesSlide{index}.xml.rels"),
+                    rels_xml(&[Rel::new(
+                        "rId1",
+                        rel_kind::SLIDE,
+                        format!("../slides/slide{index}.xml"),
+                    )]),
+                ));
+                let next_rid = rels.len() + 1;
+                rels.push(Rel::new(
+                    &format!("rId{next_rid}"),
+                    rel_kind::NOTES_SLIDE,
+                    format!("../notesSlides/notesSlide{index}.xml"),
+                ));
+            }
+
             entries.push(PackageEntry::opaque(
                 format!("ppt/slides/_rels/slide{index}.xml.rels"),
                 rels_xml(&rels),
@@ -462,6 +487,62 @@ fn presentation_xml(presentation: &Presentation) -> Vec<u8> {
     x.leaf("p:sldSz", &[("cx", &cx), ("cy", &cy)]);
     x.leaf("p:notesSz", &[("cx", "6858000"), ("cy", "9144000")]);
     x.end("p:presentation");
+    x.into_string().into_bytes()
+}
+fn notes_slide_xml(text: &str) -> Vec<u8> {
+    let mut x = Xml::new();
+    x.start(
+        "p:notes",
+        &[
+            ("xmlns:a", ns::DRAWINGML),
+            ("xmlns:r", ns::RELATIONSHIPS),
+            ("xmlns:p", ns::PRESENTATIONML),
+        ],
+    );
+    x.start("p:cSld", &[]);
+    x.start("p:spTree", &[]);
+    x.start("p:nvGrpSpPr", &[]);
+    x.leaf("p:cNvPr", &[("id", "1"), ("name", "")]);
+    x.leaf("p:cNvGrpSpPr", &[]);
+    x.leaf("p:nvPr", &[]);
+    x.end("p:nvGrpSpPr");
+    x.start("p:grpSpPr", &[]);
+    x.start("a:xfrm", &[]);
+    x.leaf("a:off", &[("x", "0"), ("y", "0")]);
+    x.leaf("a:ext", &[("cx", "0"), ("cy", "0")]);
+    x.leaf("a:chOff", &[("x", "0"), ("y", "0")]);
+    x.leaf("a:chExt", &[("cx", "0"), ("cy", "0")]);
+    x.end("a:xfrm");
+    x.end("p:grpSpPr");
+
+    x.start("p:sp", &[]);
+    x.start("p:nvSpPr", &[]);
+    x.leaf("p:cNvPr", &[("id", "2"), ("name", "Notes Placeholder")]);
+    x.start("p:cNvSpPr", &[]);
+    x.leaf("a:spLocks", &[("noGrp", "1")]);
+    x.end("p:cNvSpPr");
+    x.start("p:nvPr", &[]);
+    x.leaf("p:ph", &[("type", "body"), ("idx", "1")]);
+    x.end("p:nvPr");
+    x.end("p:nvSpPr");
+    x.leaf("p:spPr", &[]);
+    x.start("p:txBody", &[]);
+    x.leaf("a:bodyPr", &[]);
+    x.leaf("a:lstStyle", &[]);
+    for line in text.lines() {
+        x.start("a:p", &[]);
+        x.start("a:r", &[]);
+        x.leaf("a:rPr", &[("lang", "en-US"), ("altLang", "zh-CN")]);
+        x.text_elem("a:t", line);
+        x.end("a:r");
+        x.end("a:p");
+    }
+    x.end("p:txBody");
+    x.end("p:sp");
+
+    x.end("p:spTree");
+    x.end("p:cSld");
+    x.end("p:notes");
     x.into_string().into_bytes()
 }
 

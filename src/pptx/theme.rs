@@ -321,8 +321,12 @@ pub fn safe_ea_typeface(name: &str) -> &str {
         "MiSans" | "misans" | "Liter" | "liter" => "Microsoft YaHei",
         "微软雅黑" | "Microsoft YaHei" | "MS YaHei" | "雅黑" => "Microsoft YaHei",
         "苹方" | "苹方-简" | "PingFang SC" => "PingFang SC",
-        "思源黑体" | "Source Han Sans" | "Source Han Sans SC" | "Noto Sans SC" => "Microsoft YaHei",
-        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" => "SimSun",
+        "思源黑体" | "Source Han Sans" | "Source Han Sans SC" | "Noto Sans SC" => {
+            "Microsoft YaHei"
+        }
+        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" => {
+            "SimSun"
+        }
         "宋体" | "SimSun" | "中易宋体" | "Songti SC" => "SimSun",
         "Cambria Math" | "Cambria" | "Times New Roman" => "SimSun",
         "" => "Microsoft YaHei",
@@ -335,7 +339,13 @@ pub fn safe_latin_typeface(name: &str) -> &str {
     let trimmed = name.trim();
     match trimmed {
         "MiSans" | "misans" | "Liter" | "liter" => "Arial",
-        "思源宋体" | "Source Han Serif" | "Source Han Serif SC" | "Source Han Serif SC VF" | "宋体" | "SimSun" | "Songti SC" => "Georgia",
+        "思源宋体"
+        | "Source Han Serif"
+        | "Source Han Serif SC"
+        | "Source Han Serif SC VF"
+        | "宋体"
+        | "SimSun"
+        | "Songti SC" => "Georgia",
         "Cambria Math" => "Times New Roman",
         "Times New Roman" => "Times New Roman",
         "QuattrocentoSans" => "Arial",
@@ -376,7 +386,10 @@ fn emit_font_scheme(x: &mut Xml, name: &str, latin: &str, ea: &str) {
     x.leaf("a:ea", &[("typeface", safe_ea)]);
     x.leaf("a:cs", &[("typeface", safe_latin)]);
     x.leaf("a:font", &[("script", "Hans"), ("typeface", safe_ea)]);
-    x.leaf("a:font", &[("script", "Hant"), ("typeface", "Microsoft JhengHei")]);
+    x.leaf(
+        "a:font",
+        &[("script", "Hant"), ("typeface", "Microsoft JhengHei")],
+    );
     x.end(name);
 }
 

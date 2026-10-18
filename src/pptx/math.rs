@@ -297,10 +297,7 @@ mod tests {
     use super::*;
 
     fn joined(src: &str) -> String {
-        latex_to_segments(src)
-            .into_iter()
-            .map(|s| s.text)
-            .collect()
+        latex_to_segments(src).into_iter().map(|s| s.text).collect()
     }
     #[test]
     fn plain_and_commands() {

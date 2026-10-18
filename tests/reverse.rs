@@ -98,8 +98,7 @@ fn table_fixture_roundtrips_through_convert() {
     let work = temp_dir("tables");
     let first_pptx = work.join("first.pptx");
     let project = pptd::load_project(
-        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/tables/tables.pptd"),
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tables/tables.pptd"),
     )
     .unwrap();
     pptx::writer::PptxWriter::new(&project)
@@ -147,10 +146,9 @@ fn table_fixture_roundtrips_through_convert() {
     }
     // Header fill was resolved from the theme `$primary` reference.
     assert!(
-        table.rows[0][0]
-            .fill
-            .as_ref()
-            .is_some_and(|f| matches!(f, pptd::shared::Fill::Solid { color } if color.0 == "#2F5D50")),
+        table.rows[0][0].fill.as_ref().is_some_and(
+            |f| matches!(f, pptd::shared::Fill::Solid { color } if color.0 == "#2F5D50")
+        ),
         "header fill must survive as solid #2F5D50"
     );
 

@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
-
+  workflow_dispatch:
 permissions:
   contents: write
 
@@ -93,6 +93,12 @@ jobs:
         with:
           merge-multiple: true
           path: dist
+      - name: Compute checksums
+        working-directory: dist
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
 
       - uses: softprops/action-gh-release@v2
         with:
